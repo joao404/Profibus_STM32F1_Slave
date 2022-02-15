@@ -3,6 +3,9 @@
  *
  * Copyright (C) 2022 Marcel Maage
  * 
+ * based on https://github.com/GBert/railroad/blob/master/can2udp/src/can2udp.c
+ * by Gerhard Bertelsmann 
+ * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
