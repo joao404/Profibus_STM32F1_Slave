@@ -151,7 +151,7 @@ void Can2Udp::handleUdpPacket(uint8_t *udpframe, size_t size)
             Serial.print(" ");
             for (int i = 0; i < (tx_frame.data_length_code); i++)
             {
-                Serial.print(udpframe[i], HEX);
+                Serial.print(tx_frame.data[i], HEX);
                 Serial.print(" ");
             }
             Serial.print("\n");

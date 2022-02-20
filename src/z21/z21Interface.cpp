@@ -960,6 +960,10 @@ void z21Interface::setExtACCInfo(uint16_t Adr, uint8_t State, bool Status)
 // Return CV Value for Programming
 void z21Interface::setCVReturn(uint16_t CV, uint8_t value)
 {
+	if (m_debug)
+	{
+	  Serial.println("setCVReturn");
+	}
 	uint8_t data[5];
 	data[0] = static_cast<uint8_t>(z21Interface::XHeader::LAN_X_CV_RESULT); // 0x64 X-Header
 	data[1] = 0x14;															// DB0
@@ -973,6 +977,10 @@ void z21Interface::setCVReturn(uint16_t CV, uint8_t value)
 // Return no ACK from Decoder
 void z21Interface::setCVNack()
 {
+	if (m_debug)
+	{
+	  Serial.println("setCVNack");
+	}
 	uint8_t data[2];
 	data[0] = static_cast<uint8_t>(z21Interface::XHeader::LAN_X_CV_NACK); // 0x61 X-Header
 	data[1] = 0x13;														  // DB0
@@ -983,6 +991,10 @@ void z21Interface::setCVNack()
 // Return Short while Programming
 void z21Interface::setCVNackSC()
 {
+	if (m_debug)
+	{
+	  Serial.println("setCVNackSC");
+	}
 	uint8_t data[2];
 	data[0] = static_cast<uint8_t>(z21Interface::XHeader::LAN_X_CV_NACK_SC); // 0x61 X-Header
 	data[1] = 0x12;															 // DB0

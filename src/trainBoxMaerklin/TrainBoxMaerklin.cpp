@@ -314,6 +314,22 @@ void TrainBoxMaerklin::handleReceivedMessage(TrackMessage &message)
 				messageHandled = onLocoFunc(id, function, value);
 			}
 			break;
+		case TrainBoxMaerklin::Cmd::readConfig:
+			if (7 == message.length)
+			{
+				uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
+				uint16_t cvAdr = (message.data[4] << 8) + message.data[5];
+				uint8_t value = message.data[6];
+				messageHandled = onReadConfig(id, cvAdr, value, true);
+			}
+			else if (6 == message.length)
+			{
+				uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
+				uint16_t cvAdr = (message.data[4] << 8) + message.data[5];
+				uint8_t value = 0;
+				messageHandled = onReadConfig(id, cvAdr, value, false);
+			}
+			break;
 		case TrainBoxMaerklin::Cmd::writeConfig:
 			if (8 == message.length)
 			{
@@ -667,6 +683,21 @@ void TrainBoxMaerklin::messageLocoFunc(TrackMessage &message, uint32_t uid, uint
 	message.data[5] = value;
 }
 
+void TrainBoxMaerklin::messageReadConfig(TrackMessage &message, uint32_t id, uint16_t cvAdr, uint8_t number)
+{
+	message.clear();
+	message.prio = static_cast<uint8_t>(MessagePrio::noPrio);
+	message.command = static_cast<uint8_t>(TrainBoxMaerklin::Cmd::locoFunc);
+	message.length = 0x07;
+	message.data[0] = 0xFF & (id >> 24);
+	message.data[1] = 0xFF & (id >> 16);
+	message.data[2] = 0xFF & (id >> 8);
+	message.data[3] = 0xFF & id;
+	message.data[4] = highByte(cvAdr);
+	message.data[5] = lowByte(cvAdr);
+	message.data[6] = number;
+}
+
 void TrainBoxMaerklin::messageWriteConfig(TrackMessage &message, uint32_t id, uint16_t cvAdr, uint8_t value, bool directProc, bool writeByte)
 {
 	message.clear();
@@ -882,6 +913,13 @@ bool TrainBoxMaerklin::setLocoFunc(uint32_t uid, uint8_t function, uint8_t value
 {
 	TrackMessage message;
 	messageLocoFunc(message, uid, function, value);
+	return sendMessage(message);
+}
+
+bool TrainBoxMaerklin::sendReadConfig(uint32_t id, uint16_t cvAdr, uint8_t number)
+{
+	TrackMessage message;
+	messageReadConfig(message, id, cvAdr, number);
 	return sendMessage(message);
 }
 

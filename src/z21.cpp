@@ -551,9 +551,30 @@ bool z21::onLocoFunc(uint32_t id, uint8_t function, uint8_t value)
   return true;
 }
 
+bool z21::onReadConfig(uint32_t id, uint16_t cvAdr, uint8_t value, bool readSuccessful)
+{
+  Serial.print("RC:");
+  Serial.print(id);
+  Serial.print(" cvAdr:");
+  Serial.print(cvAdr);
+  Serial.print(" value:");
+  Serial.print(value);
+  Serial.print(" :");
+  Serial.print(readSuccessful);
+  if(readSuccessful)
+  {
+    setCVReturn(cvAdr - 1, value);
+  }
+  else
+  {
+    setCVNack();
+  }
+  return true;
+}
+
 bool z21::onWriteConfig(uint32_t id, uint16_t cvAdr, uint8_t value, bool writeSuccessful, bool verified)
 {
-  Serial.print("Id:");
+  Serial.print("WC:");
   Serial.print(id);
   Serial.print(" cvAdr:");
   Serial.print(cvAdr);
@@ -562,9 +583,17 @@ bool z21::onWriteConfig(uint32_t id, uint16_t cvAdr, uint8_t value, bool writeSu
   Serial.print(" :");
   Serial.print(writeSuccessful);
   Serial.println(verified);
-  if (directProgramming)
+  if(writeSuccessful)
   {
-    // sending report in case that direct programming
+    setCVReturn(cvAdr - 1, value);
+    // if (directProgramming)
+    // {
+    //   // sending report in case that direct programming
+    // }
+  }
+  else
+  {
+    setCVNack();
   }
   return true;
 }
@@ -999,10 +1028,17 @@ void z21::notifyz21InterfaceCVREAD(uint8_t cvAdrMSB, uint8_t cvAdrLSB)
 //--------------------------------------------------------------------------------------------
 void z21::notifyz21InterfaceCVWRITE(uint8_t cvAdrMSB, uint8_t cvAdrLSB, uint8_t value)
 {
-  Serial.println("CVWRITE");
+  Serial.print("CVWRITE");
+  Serial.print(cvAdrMSB);
+  Serial.print(":");
+  Serial.print(cvAdrLSB);
+  Serial.print(":");
+  Serial.println(value);
   directProgramming = true;
-  uint16_t cvAdr = (cvAdrMSB << 8) + cvAdrLSB;
-  sendWriteConfig(80, cvAdr, value, true, false);
+  uint16_t cvAdr = (cvAdrMSB << 8) + cvAdrLSB + 1;
+  //Directprogramming
+  //sendWriteConfig(static_cast<uint32_t>(AddrOffset::MM2) + 80, cvAdr, value, true, false);//MM
+  sendWriteConfig(static_cast<uint32_t>(AddrOffset::DCC) + 1, cvAdr, value, true, false);//DCC
 }
 
 //--------------------------------------------------------------------------------------------
@@ -1010,20 +1046,22 @@ void z21::notifyz21InterfaceMMWRITE(uint8_t regAdr, uint8_t value)
 {
   Serial.println("MMWRITE");
   directProgramming = true;
-  sendWriteConfig(80, static_cast<uint8_t>(regAdr), value, true, false);
+  sendWriteConfig(80, static_cast<uint8_t>(regAdr) + 1, value, true, false);
 }
 
 //--------------------------------------------------------------------------------------------
 void z21::notifyz21InterfaceDCCWRITE(uint8_t regAdr, uint8_t value)
 {
-  Serial.println("MMWRITE");
+  Serial.println("DCCWRITE");
   directProgramming = true;
-  sendWriteConfig(0xC001, static_cast<uint8_t>(regAdr), value, true, false);
+  sendWriteConfig(0xC001, static_cast<uint8_t>(regAdr) + 1, value, true, false);
 }
 
 //--------------------------------------------------------------------------------------------
 void z21::notifyz21InterfaceDCCREAD(uint8_t regAdr)
 {
+  Serial.println("DCCREAD");
+  setCVNack();
 }
 
 //--------------------------------------------------------------------------------------------
@@ -1031,7 +1069,17 @@ void z21::notifyz21InterfaceCVPOMWRITEBYTE(uint16_t Adr, uint16_t cvAdr, uint8_t
 {
   Serial.println("CVPOMWRITEBYTE");
   directProgramming = false;
-  sendWriteConfig(static_cast<uint16_t>(Adr), cvAdr, value, false, true);
+  for (auto finding = m_locos.begin(); finding != m_locos.end(); ++finding)
+  {
+    if (finding->adr == Adr)
+    {
+      // adapt adress for trainbox
+      uint32_t id = static_cast<uint32_t>(Adr) + (finding->mode ? 0 : static_cast<uint32_t>(AddrOffset::DCC));
+      sendWriteConfig(id, cvAdr + 1, value, false, true);
+      return;
+    }
+  }
+  setCVNack();
 }
 
 //--------------------------------------------------------------------------------------------
@@ -1039,14 +1087,29 @@ void z21::notifyz21InterfaceCVPOMWRITEBIT(uint16_t Adr, uint16_t cvAdr, uint8_t 
 {
   Serial.println("CVPOMWRITEBIT");
   // directProgramming = false;
-  // sendWriteConfig(static_cast<uint16_t>(Adr), cvAdr, value, false, false);
+  // sendWriteConfig(static_cast<uint16_t>(Adr), cvAdr + 1, value, false, false);
+  setCVNack();
 }
 
 //--------------------------------------------------------------------------------------------
 void z21::notifyz21InterfaceCVPOMREADBYTE(uint16_t Adr, uint16_t cvAdr)
 {
   Serial.println("CVPOMREADBYTE");
+  /*
   directProgramming = false;
+  for (auto finding = m_locos.begin(); finding != m_locos.end(); ++finding)
+  {
+    if (finding->adr == Adr)
+    {
+      // adapt adress for trainbox
+      uint32_t id = static_cast<uint32_t>(Adr) + (finding->mode ? 0 : static_cast<uint32_t>(AddrOffset::DCC));
+      sendReadConfig(id, cvAdr + 1, 1);
+      return;
+    }
+  }
+  setCVNack();
+  */
+ setCVReturn(cvAdr, 1);
 }
 
 //--------------------------------------------------------------------------------------------

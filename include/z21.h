@@ -67,7 +67,7 @@ private:
 
     const size_t m_maxNumberOfLoco{256};
 
-    const uint16_t m_longDccAddressStart {99};
+    const uint16_t m_longDccAddressStart {128};
 
     std::list<DataLoco> m_locos;
     
@@ -151,6 +151,8 @@ private:
     bool onLocoDir(uint32_t id, uint8_t dir) override;
 
     bool onLocoFunc(uint32_t id, uint8_t function, uint8_t value) override;
+
+    bool onReadConfig(uint32_t id, uint16_t cvAdr, uint8_t value, bool readSuccessful) override;
 
     bool onWriteConfig(uint32_t id, uint16_t cvAdr, uint8_t value, bool writeSuccessful, bool verified) override;
 

@@ -246,6 +246,8 @@ class TrainBoxMaerklin {
 
         virtual bool onLocoFunc(uint32_t id, uint8_t function, uint8_t value){return false;}
 
+        virtual bool onReadConfig(uint32_t id, uint16_t cvAdr, uint8_t value, bool readSuccessful){return false;};
+
         virtual bool onWriteConfig(uint32_t id, uint16_t cvAdr, uint8_t value, bool writeSuccessful, bool verified){return false;};
 
         virtual bool  onAccSwitch(uint32_t id, uint8_t position, uint8_t current){return false;}
@@ -292,6 +294,8 @@ class TrainBoxMaerklin {
         void messageLocoFunc(TrackMessage& message, uint32_t uid, uint8_t function);
 
         void messageLocoFunc(TrackMessage& message, uint32_t uid, uint8_t function, uint8_t value);
+
+        void messageReadConfig(TrackMessage& message, uint32_t id, uint16_t cvAdr, uint8_t number);
 
         void messageWriteConfig(TrackMessage& message, uint32_t id, uint16_t cvAdr, uint8_t value, bool directProc, bool writeByte);
 
@@ -351,6 +355,8 @@ class TrainBoxMaerklin {
         bool requestLocoFunc(uint32_t uid, uint8_t function);
 
         bool setLocoFunc(uint32_t uid, uint8_t function, uint8_t value);
+
+        bool sendReadConfig(uint32_t id, uint16_t cvAdr, uint8_t number);
 
         bool sendWriteConfig(uint32_t id, uint16_t cvAdr, uint8_t value, bool directProc, bool writeByte);
 
