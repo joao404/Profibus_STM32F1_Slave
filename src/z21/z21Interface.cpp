@@ -16,7 +16,7 @@
 // Constructor /////////////////////////////////////////////////////////////////
 // Function that handles the creation and setup of instances
 
-z21Interface::z21Interface(HwType hwType, uint16_t swVersion, boolean debug)
+z21Interface::z21Interface(HwType hwType, uint32_t swVersion, boolean debug)
 	: m_debug(debug)
 {
 	// initialize this instance's variables
@@ -64,14 +64,14 @@ void z21Interface::receive(uint8_t client, uint8_t *packet)
 		{
 			ZDebug.println("GET_HWINFO");
 		}
-		data[0] = static_cast<uint16_t>(m_hwType) & 0xFF; // HwType 32 Bit
-		data[1] = (static_cast<uint16_t>(m_hwType) >> 8) & 0xFF;
-		data[2] = 0x00;
-		data[3] = 0x00;
+		data[0] = static_cast<uint8_t>(m_hwType) & 0xFF; // HwType 32 Bit
+		data[1] = (static_cast<uint8_t>(m_hwType) >> 8) & 0xFF;
+		data[2] = (static_cast<uint8_t>(m_hwType) >> 16) & 0xFF;
+		data[3] = (static_cast<uint8_t>(m_hwType) >> 24) & 0xFF;
 		data[4] = m_swVersion & 0xFF; // FW Version 32 Bit
 		data[5] = (m_swVersion >> 8) & 0xFF;
-		data[6] = 0x00;
-		data[7] = 0x00;
+		data[6] = (m_swVersion >> 16) & 0xFF;
+		data[7] = (m_swVersion >> 24) & 0xFF;
 		EthSend(client, 0x0C, z21Interface::Header::LAN_GET_HWINFO, data, false, static_cast<uint16_t>(BcFlagShort::Z21bcNone));
 		break;
 	case z21Interface::Header::LAN_LOGOFF:

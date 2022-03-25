@@ -1,7 +1,7 @@
 #include "Arduino.h"
 #include "z21/z21InterfaceEsp32.h"
 
-z21InterfaceEsp32::z21InterfaceEsp32(HwType hwType, uint16_t swVersion, uint16_t port, boolean debug)
+z21InterfaceEsp32::z21InterfaceEsp32(HwType hwType, uint32_t swVersion, uint16_t port, boolean debug)
 :z21Interface(hwType, swVersion, debug),
 port(port),
 countIP(0),

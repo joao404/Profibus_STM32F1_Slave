@@ -1,10 +1,10 @@
 /*********************************************************************
- * TrainBox Maerklin 
+ * TrainBox Maerklin
  *
  * Copyright (C) 2022 Marcel Maage
- * 
+ *
  * based on code by Joerg Pleumann
- * 
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -16,12 +16,12 @@
  * LICENSE file for more details.
  */
 
-#include "trainBoxMaerklin/TrainBoxMaerklin.h"
+#include "trainBoxMaerklin/MaerklinCanInterface.h"
 
 size_t printHex(Print &p, unsigned long hex, int digits);
 int parseHex(String &s, int start, int end, bool *ok);
 
-TrainBoxMaerklin::TrainBoxMaerklin(word hash, bool debug)
+MaerklinCanInterface::MaerklinCanInterface(word hash, bool debug)
 	: m_hash(hash),
 	  m_debug(debug)
 {
@@ -31,7 +31,7 @@ TrainBoxMaerklin::TrainBoxMaerklin(word hash, bool debug)
 	}
 }
 
-TrainBoxMaerklin::~TrainBoxMaerklin()
+MaerklinCanInterface::~MaerklinCanInterface()
 {
 	if (m_debug)
 	{
@@ -39,7 +39,7 @@ TrainBoxMaerklin::~TrainBoxMaerklin()
 	}
 }
 
-void TrainBoxMaerklin::begin()
+void MaerklinCanInterface::begin()
 {
 
 	// send init message
@@ -56,17 +56,17 @@ void TrainBoxMaerklin::begin()
 	}
 }
 
-uint16_t TrainBoxMaerklin::getHash()
+uint16_t MaerklinCanInterface::getHash()
 {
 	return m_hash;
 }
 
-bool TrainBoxMaerklin::isDebug()
+bool MaerklinCanInterface::isDebug()
 {
 	return m_debug;
 }
 
-void TrainBoxMaerklin::generateHash()
+void MaerklinCanInterface::generateHash()
 {
 	TrackMessage message;
 
@@ -114,7 +114,7 @@ void TrainBoxMaerklin::generateHash()
 	}
 }
 
-bool TrainBoxMaerklin::exchangeMessage(TrackMessage &out, TrackMessage &in, word timeout)
+bool MaerklinCanInterface::exchangeMessage(TrackMessage &out, TrackMessage &in, word timeout)
 {
 	int command = out.command;
 
@@ -156,7 +156,7 @@ bool TrainBoxMaerklin::exchangeMessage(TrackMessage &out, TrackMessage &in, word
 	return false;
 }
 
-void TrainBoxMaerklin::handleReceivedMessage(TrackMessage &message)
+void MaerklinCanInterface::handleReceivedMessage(TrackMessage &message)
 {
 	// Serial.print("==> ");
 	// Serial.println(message);
@@ -164,54 +164,54 @@ void TrainBoxMaerklin::handleReceivedMessage(TrackMessage &message)
 	// check message if it is a response or not and call callbacks
 	if (message.response)
 	{
-		switch (static_cast<TrainBoxMaerklin::Cmd>(message.command))
+		switch (static_cast<MaerklinCanInterface::Cmd>(message.command))
 		{
-		case TrainBoxMaerklin::Cmd::systemCmd:
-			switch (static_cast<TrainBoxMaerklin::SubCmd>(message.data[4]))
+		case MaerklinCanInterface::Cmd::systemCmd:
+			switch (static_cast<MaerklinCanInterface::SubCmd>(message.data[4]))
 			{
-			case TrainBoxMaerklin::SubCmd::systemStop:
+			case MaerklinCanInterface::SubCmd::systemStop:
 				if (5 == message.length)
 				{
 					uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
 					messageHandled = onSystemStop(id);
 				}
 				break;
-			case TrainBoxMaerklin::SubCmd::systemGo:
+			case MaerklinCanInterface::SubCmd::systemGo:
 				if (5 == message.length)
 				{
 					uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
 					messageHandled = onSystemGo(id);
 				}
 				break;
-			case TrainBoxMaerklin::SubCmd::systemHalt:
+			case MaerklinCanInterface::SubCmd::systemHalt:
 				if (5 == message.length)
 				{
 					uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
 					messageHandled = onSystemHalt(id);
 				}
 				break;
-			case TrainBoxMaerklin::SubCmd::locoStop:
+			case MaerklinCanInterface::SubCmd::locoStop:
 				if (5 == message.length)
 				{
 					uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
 					messageHandled = onLocoStop(id);
 				}
 				break;
-			case TrainBoxMaerklin::SubCmd::locoRemoveCycle:
+			case MaerklinCanInterface::SubCmd::locoRemoveCycle:
 				if (5 == message.length)
 				{
 					uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
 					messageHandled = onLocoRemoveCycle(id);
 				}
 				break;
-			case TrainBoxMaerklin::SubCmd::locoDataProtocol:
+			case MaerklinCanInterface::SubCmd::locoDataProtocol:
 				if (6 == message.length)
 				{
 					uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
 					messageHandled = onLocoDataProtocol(id, static_cast<ProtocolLoco>(message.data[5]));
 				}
 				break;
-			case TrainBoxMaerklin::SubCmd::accTime:
+			case MaerklinCanInterface::SubCmd::accTime:
 				if (6 == message.length)
 				{
 					uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
@@ -219,7 +219,7 @@ void TrainBoxMaerklin::handleReceivedMessage(TrackMessage &message)
 					messageHandled = onAccTime(id, accTimeIN10ms);
 				}
 				break;
-			case TrainBoxMaerklin::SubCmd::fastReadMfx:
+			case MaerklinCanInterface::SubCmd::fastReadMfx:
 				if (6 == message.length)
 				{
 					uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
@@ -227,14 +227,14 @@ void TrainBoxMaerklin::handleReceivedMessage(TrackMessage &message)
 					messageHandled = onFastReadMfx(id, mfxSid);
 				}
 				break;
-			case TrainBoxMaerklin::SubCmd::setTrackProtocol:
+			case MaerklinCanInterface::SubCmd::setTrackProtocol:
 				if (6 == message.length)
 				{
 					uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
 					messageHandled = onTrackProtocol(id, message.data[5]);
 				}
 				break;
-			case TrainBoxMaerklin::SubCmd::setMfxCounter:
+			case MaerklinCanInterface::SubCmd::setMfxCounter:
 				if (6 == message.length)
 				{
 					uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
@@ -242,14 +242,14 @@ void TrainBoxMaerklin::handleReceivedMessage(TrackMessage &message)
 					messageHandled = onMfxCounter(id, counter);
 				}
 				break;
-			case TrainBoxMaerklin::SubCmd::systemOverLoad:
+			case MaerklinCanInterface::SubCmd::systemOverLoad:
 				if (6 == message.length)
 				{
 					uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
 					messageHandled = onSystemOverLoad(id, message.data[5]);
 				}
 				break;
-			case TrainBoxMaerklin::SubCmd::systemStatus:
+			case MaerklinCanInterface::SubCmd::systemStatus:
 				if (7 == message.length)
 				{
 					uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
@@ -265,7 +265,7 @@ void TrainBoxMaerklin::handleReceivedMessage(TrackMessage &message)
 					messageHandled = onSystemStatus(id, channel, value);
 				}
 				break;
-			case TrainBoxMaerklin::SubCmd::systemIdent:
+			case MaerklinCanInterface::SubCmd::systemIdent:
 				if (7 == message.length)
 				{
 					uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
@@ -273,7 +273,7 @@ void TrainBoxMaerklin::handleReceivedMessage(TrackMessage &message)
 					messageHandled = onSystemIdent(id, feedbackId);
 				}
 				break;
-			case TrainBoxMaerklin::SubCmd::systemReset:
+			case MaerklinCanInterface::SubCmd::systemReset:
 				if (6 == message.length)
 				{
 					uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
@@ -284,7 +284,7 @@ void TrainBoxMaerklin::handleReceivedMessage(TrackMessage &message)
 				break;
 			}
 			break;
-		case TrainBoxMaerklin::Cmd::locoSpeed:
+		case MaerklinCanInterface::Cmd::locoSpeed:
 			if (4 == message.length) // locomotive is not known
 			{
 				uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
@@ -297,7 +297,7 @@ void TrainBoxMaerklin::handleReceivedMessage(TrackMessage &message)
 				messageHandled = onLocoSpeed(id, speed);
 			}
 			break;
-		case TrainBoxMaerklin::Cmd::locoDir:
+		case MaerklinCanInterface::Cmd::locoDir:
 			if (5 == message.length)
 			{
 				uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
@@ -305,7 +305,7 @@ void TrainBoxMaerklin::handleReceivedMessage(TrackMessage &message)
 				messageHandled = onLocoDir(id, dir);
 			}
 			break;
-		case TrainBoxMaerklin::Cmd::locoFunc:
+		case MaerklinCanInterface::Cmd::locoFunc:
 			if (6 == message.length)
 			{
 				uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
@@ -314,7 +314,7 @@ void TrainBoxMaerklin::handleReceivedMessage(TrackMessage &message)
 				messageHandled = onLocoFunc(id, function, value);
 			}
 			break;
-		case TrainBoxMaerklin::Cmd::readConfig:
+		case MaerklinCanInterface::Cmd::readConfig:
 			if (7 == message.length)
 			{
 				uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
@@ -330,7 +330,7 @@ void TrainBoxMaerklin::handleReceivedMessage(TrackMessage &message)
 				messageHandled = onReadConfig(id, cvAdr, value, false);
 			}
 			break;
-		case TrainBoxMaerklin::Cmd::writeConfig:
+		case MaerklinCanInterface::Cmd::writeConfig:
 			if (8 == message.length)
 			{
 				uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
@@ -342,7 +342,7 @@ void TrainBoxMaerklin::handleReceivedMessage(TrackMessage &message)
 			}
 			break;
 
-		case TrainBoxMaerklin::Cmd::accSwitch:
+		case MaerklinCanInterface::Cmd::accSwitch:
 			if (6 == message.length)
 			{
 				uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
@@ -358,13 +358,56 @@ void TrainBoxMaerklin::handleReceivedMessage(TrackMessage &message)
 				messageHandled = onAccSwitch(id, position, current);
 			}
 			break;
-		case TrainBoxMaerklin::Cmd::ping:
+		case MaerklinCanInterface::Cmd::ping:
 			if (8 == message.length)
 			{
 				uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
 				uint16_t swVersion = (static_cast<uint16_t>(message.data[4]) << 8) + message.data[5];
 				uint16_t hwIdent = (static_cast<uint16_t>(message.data[6]) << 8) + message.data[7];
 				messageHandled = onPing(id, swVersion, hwIdent);
+			}
+			break;
+		case MaerklinCanInterface::Cmd::statusDataConfig:
+			if (8 == message.length)
+			{
+				std::array<uint8_t, 8> data{message.data[0], message.data[1], message.data[2], message.data[3], message.data[4], message.data[5], message.data[6], message.data[7]}; 
+				messageHandled = onStatusDataConfig(message.hash, data);
+			}
+			else if (6 == message.length)
+			{
+				uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
+				messageHandled = onStatusDataConfig(message.hash, id, message.data[4], message.data[5]);
+			}
+			break;
+		case MaerklinCanInterface::Cmd::requestConfigData:
+			if (8 == message.length)
+			{
+				std::array<uint8_t, 8> data{message.data[0], message.data[1], message.data[2], message.data[3], message.data[4], message.data[5], message.data[6], message.data[7]}; 
+				messageHandled = onConfigData(data);
+			}
+			break;
+
+		case MaerklinCanInterface::Cmd::configDataSteam:
+			if (8 == message.length)
+			{
+				std::array<uint8_t, 8> data{message.data[0], message.data[1], message.data[2], message.data[3], message.data[4], message.data[5], message.data[6], message.data[7]}; 
+				messageHandled = onConfigDataStream(message.hash, data);
+			}
+			else if(7 == message.length)
+			{
+				uint32_t length = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
+				uint16_t crc =  (message.data[4] << 8) + message.data[5];
+				messageHandled = onConfigDataStream(message.hash, length, crc, message.data[6]);
+			}
+			else if(6 == message.length)
+			{
+				uint32_t length = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
+				uint16_t crc =  (message.data[4] << 8) + message.data[5];
+				messageHandled = onConfigDataStream(message.hash, length, crc);
+			}
+			else
+			{
+				messageHandled = onConfigDataSteamError(message.hash);
 			}
 			break;
 
@@ -376,12 +419,12 @@ void TrainBoxMaerklin::handleReceivedMessage(TrackMessage &message)
 
 	else
 	{
-		switch (static_cast<TrainBoxMaerklin::Cmd>(message.command))
+		switch (static_cast<MaerklinCanInterface::Cmd>(message.command))
 		{
-		case TrainBoxMaerklin::Cmd::systemCmd:
-			switch (static_cast<TrainBoxMaerklin::SubCmd>(message.data[4]))
+		case MaerklinCanInterface::Cmd::systemCmd:
+			switch (static_cast<MaerklinCanInterface::SubCmd>(message.data[4]))
 			{
-			case TrainBoxMaerklin::SubCmd::systemOverLoad:
+			case MaerklinCanInterface::SubCmd::systemOverLoad:
 				if (6 == message.length)
 				{
 					uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
@@ -404,200 +447,200 @@ void TrainBoxMaerklin::handleReceivedMessage(TrackMessage &message)
 	}
 }
 
-void TrainBoxMaerklin::messageSystemStop(TrackMessage &message, uint32_t uid)
+void MaerklinCanInterface::messageSystemStop(TrackMessage &message, uint32_t uid)
 {
 	message.clear();
 	message.prio = static_cast<uint8_t>(MessagePrio::system);
-	message.command = static_cast<uint8_t>(TrainBoxMaerklin::Cmd::systemCmd);
+	message.command = static_cast<uint8_t>(MaerklinCanInterface::Cmd::systemCmd);
 	message.length = 0x05;
 	message.data[0] = 0xFF & (uid >> 24);
 	message.data[1] = 0xFF & (uid >> 16);
 	message.data[2] = 0xFF & (uid >> 8);
 	message.data[3] = 0xFF & uid;
-	message.data[4] = static_cast<uint8_t>(TrainBoxMaerklin::SubCmd::systemStop);
+	message.data[4] = static_cast<uint8_t>(MaerklinCanInterface::SubCmd::systemStop);
 }
 
-void TrainBoxMaerklin::messageSystemGo(TrackMessage &message, uint32_t uid)
+void MaerklinCanInterface::messageSystemGo(TrackMessage &message, uint32_t uid)
 {
 	message.clear();
 	message.prio = static_cast<uint8_t>(MessagePrio::system);
-	message.command = static_cast<uint8_t>(TrainBoxMaerklin::Cmd::systemCmd);
+	message.command = static_cast<uint8_t>(MaerklinCanInterface::Cmd::systemCmd);
 	message.length = 0x05;
 	message.data[0] = 0xFF & (uid >> 24);
 	message.data[1] = 0xFF & (uid >> 16);
 	message.data[2] = 0xFF & (uid >> 8);
 	message.data[3] = 0xFF & uid;
-	message.data[4] = static_cast<uint8_t>(TrainBoxMaerklin::SubCmd::systemGo);
+	message.data[4] = static_cast<uint8_t>(MaerklinCanInterface::SubCmd::systemGo);
 }
 
-void TrainBoxMaerklin::messageSystemHalt(TrackMessage &message, uint32_t uid)
+void MaerklinCanInterface::messageSystemHalt(TrackMessage &message, uint32_t uid)
 {
 	message.clear();
 	message.prio = static_cast<uint8_t>(MessagePrio::system);
-	message.command = static_cast<uint8_t>(TrainBoxMaerklin::Cmd::systemCmd);
+	message.command = static_cast<uint8_t>(MaerklinCanInterface::Cmd::systemCmd);
 	message.length = 0x05;
 	message.data[0] = 0xFF & (uid >> 24);
 	message.data[1] = 0xFF & (uid >> 16);
 	message.data[2] = 0xFF & (uid >> 8);
 	message.data[3] = 0xFF & uid;
-	message.data[4] = static_cast<uint8_t>(TrainBoxMaerklin::SubCmd::systemHalt);
+	message.data[4] = static_cast<uint8_t>(MaerklinCanInterface::SubCmd::systemHalt);
 }
 
-void TrainBoxMaerklin::messageLocoStop(TrackMessage &message, uint32_t uid)
+void MaerklinCanInterface::messageLocoStop(TrackMessage &message, uint32_t uid)
 {
 	message.clear();
 	message.prio = static_cast<uint8_t>(MessagePrio::locoStop);
-	message.command = static_cast<uint8_t>(TrainBoxMaerklin::Cmd::systemCmd);
+	message.command = static_cast<uint8_t>(MaerklinCanInterface::Cmd::systemCmd);
 	message.length = 0x05;
 	message.data[0] = 0xFF & (uid >> 24);
 	message.data[1] = 0xFF & (uid >> 16);
 	message.data[2] = 0xFF & (uid >> 8);
 	message.data[3] = 0xFF & uid;
-	message.data[4] = static_cast<uint8_t>(TrainBoxMaerklin::SubCmd::locoStop);
+	message.data[4] = static_cast<uint8_t>(MaerklinCanInterface::SubCmd::locoStop);
 }
 
-void TrainBoxMaerklin::messageLocoRemoveCycle(TrackMessage &message, uint32_t uid)
+void MaerklinCanInterface::messageLocoRemoveCycle(TrackMessage &message, uint32_t uid)
 {
 	message.clear();
 	message.prio = static_cast<uint8_t>(MessagePrio::noPrio);
-	message.command = static_cast<uint8_t>(TrainBoxMaerklin::Cmd::systemCmd);
+	message.command = static_cast<uint8_t>(MaerklinCanInterface::Cmd::systemCmd);
 	message.length = 0x05;
 	message.data[0] = 0xFF & (uid >> 24);
 	message.data[1] = 0xFF & (uid >> 16);
 	message.data[2] = 0xFF & (uid >> 8);
 	message.data[3] = 0xFF & uid;
-	message.data[4] = static_cast<uint8_t>(TrainBoxMaerklin::SubCmd::locoRemoveCycle);
+	message.data[4] = static_cast<uint8_t>(MaerklinCanInterface::SubCmd::locoRemoveCycle);
 }
 
-void TrainBoxMaerklin::messageLocoDataProtocol(TrackMessage &message, uint32_t uid, ProtocolLoco protocol)
+void MaerklinCanInterface::messageLocoDataProtocol(TrackMessage &message, uint32_t uid, ProtocolLoco protocol)
 {
 	message.clear();
 	message.prio = static_cast<uint8_t>(MessagePrio::locoAccCommand);
-	message.command = static_cast<uint8_t>(TrainBoxMaerklin::Cmd::systemCmd);
+	message.command = static_cast<uint8_t>(MaerklinCanInterface::Cmd::systemCmd);
 	message.length = 0x06;
 	message.data[0] = 0xFF & (uid >> 24);
 	message.data[1] = 0xFF & (uid >> 16);
 	message.data[2] = 0xFF & (uid >> 8);
 	message.data[3] = 0xFF & uid;
-	message.data[4] = static_cast<uint8_t>(TrainBoxMaerklin::SubCmd::locoDataProtocol);
+	message.data[4] = static_cast<uint8_t>(MaerklinCanInterface::SubCmd::locoDataProtocol);
 	message.data[5] = static_cast<uint8_t>(protocol);
 }
 
-void TrainBoxMaerklin::messageAccTime(TrackMessage &message, uint16_t accTimeIN10ms, uint32_t uid)
+void MaerklinCanInterface::messageAccTime(TrackMessage &message, uint16_t accTimeIN10ms, uint32_t uid)
 {
 	message.clear();
 	message.prio = static_cast<uint8_t>(MessagePrio::noPrio);
-	message.command = static_cast<uint8_t>(TrainBoxMaerklin::Cmd::systemCmd);
+	message.command = static_cast<uint8_t>(MaerklinCanInterface::Cmd::systemCmd);
 	message.length = 0x07;
 	message.data[0] = 0xFF & (uid >> 24);
 	message.data[1] = 0xFF & (uid >> 16);
 	message.data[2] = 0xFF & (uid >> 8);
 	message.data[3] = 0xFF & uid;
-	message.data[4] = static_cast<uint8_t>(TrainBoxMaerklin::SubCmd::accTime);
+	message.data[4] = static_cast<uint8_t>(MaerklinCanInterface::SubCmd::accTime);
 	message.data[5] = highByte(accTimeIN10ms);
 	message.data[6] = lowByte(accTimeIN10ms);
 }
 
-void TrainBoxMaerklin::messageFastReadMfx(TrackMessage &message, uint16_t mfxSid, uint32_t uid)
+void MaerklinCanInterface::messageFastReadMfx(TrackMessage &message, uint16_t mfxSid, uint32_t uid)
 {
 	message.clear();
 	message.prio = static_cast<uint8_t>(MessagePrio::noPrio);
-	message.command = static_cast<uint8_t>(TrainBoxMaerklin::Cmd::systemCmd);
+	message.command = static_cast<uint8_t>(MaerklinCanInterface::Cmd::systemCmd);
 	message.length = 0x07;
 	message.data[0] = 0xFF & (uid >> 24);
 	message.data[1] = 0xFF & (uid >> 16);
 	message.data[2] = 0xFF & (uid >> 8);
 	message.data[3] = 0xFF & uid;
-	message.data[4] = static_cast<uint8_t>(TrainBoxMaerklin::SubCmd::fastReadMfx);
+	message.data[4] = static_cast<uint8_t>(MaerklinCanInterface::SubCmd::fastReadMfx);
 	message.data[5] = highByte(mfxSid);
 	message.data[6] = lowByte(mfxSid);
 }
 
-void TrainBoxMaerklin::messageSetTrackProtocol(TrackMessage &message, uint8_t protocols, uint32_t uid)
+void MaerklinCanInterface::messageSetTrackProtocol(TrackMessage &message, uint8_t protocols, uint32_t uid)
 {
 	message.clear();
 	message.prio = static_cast<uint8_t>(MessagePrio::noPrio);
-	message.command = static_cast<uint8_t>(TrainBoxMaerklin::Cmd::systemCmd);
+	message.command = static_cast<uint8_t>(MaerklinCanInterface::Cmd::systemCmd);
 	message.length = 0x06;
 	message.data[0] = 0xFF & (uid >> 24);
 	message.data[1] = 0xFF & (uid >> 16);
 	message.data[2] = 0xFF & (uid >> 8);
 	message.data[3] = 0xFF & uid;
-	message.data[4] = static_cast<uint8_t>(TrainBoxMaerklin::SubCmd::setTrackProtocol);
+	message.data[4] = static_cast<uint8_t>(MaerklinCanInterface::SubCmd::setTrackProtocol);
 	message.data[5] = protocols;
 }
 
-void TrainBoxMaerklin::messageSetMfxCounter(TrackMessage &message, uint16_t counter, uint32_t uid)
+void MaerklinCanInterface::messageSetMfxCounter(TrackMessage &message, uint16_t counter, uint32_t uid)
 {
 	message.clear();
 	message.prio = static_cast<uint8_t>(MessagePrio::noPrio);
-	message.command = static_cast<uint8_t>(TrainBoxMaerklin::Cmd::systemCmd);
+	message.command = static_cast<uint8_t>(MaerklinCanInterface::Cmd::systemCmd);
 	message.length = 0x07;
 	message.data[0] = 0xFF & (uid >> 24);
 	message.data[1] = 0xFF & (uid >> 16);
 	message.data[2] = 0xFF & (uid >> 8);
 	message.data[3] = 0xFF & uid;
-	message.data[4] = static_cast<uint8_t>(TrainBoxMaerklin::SubCmd::setMfxCounter);
+	message.data[4] = static_cast<uint8_t>(MaerklinCanInterface::SubCmd::setMfxCounter);
 	message.data[5] = highByte(counter);
 	message.data[6] = lowByte(counter);
 }
 
-void TrainBoxMaerklin::messageSystemStatus(TrackMessage &message, uint8_t channelNumber, uint32_t uid)
+void MaerklinCanInterface::messageSystemStatus(TrackMessage &message, uint8_t channelNumber, uint32_t uid)
 {
 	message.clear();
 	message.prio = static_cast<uint8_t>(MessagePrio::noPrio);
-	message.command = static_cast<uint8_t>(TrainBoxMaerklin::Cmd::systemCmd);
+	message.command = static_cast<uint8_t>(MaerklinCanInterface::Cmd::systemCmd);
 	message.length = 0x06;
 	message.data[0] = 0xFF & (uid >> 24);
 	message.data[1] = 0xFF & (uid >> 16);
 	message.data[2] = 0xFF & (uid >> 8);
 	message.data[3] = 0xFF & uid;
-	message.data[4] = static_cast<uint8_t>(TrainBoxMaerklin::SubCmd::systemStatus);
+	message.data[4] = static_cast<uint8_t>(MaerklinCanInterface::SubCmd::systemStatus);
 	message.data[5] = channelNumber;
 }
 
-void TrainBoxMaerklin::messageSystemStatus(TrackMessage &message, uint8_t channelNumber, uint16_t configuration, uint32_t uid)
+void MaerklinCanInterface::messageSystemStatus(TrackMessage &message, uint8_t channelNumber, uint16_t configuration, uint32_t uid)
 {
 	message.clear();
 	message.prio = static_cast<uint8_t>(MessagePrio::noPrio);
-	message.command = static_cast<uint8_t>(TrainBoxMaerklin::Cmd::systemCmd);
+	message.command = static_cast<uint8_t>(MaerklinCanInterface::Cmd::systemCmd);
 	message.length = 0x08;
 	message.data[0] = 0xFF & (uid >> 24);
 	message.data[1] = 0xFF & (uid >> 16);
 	message.data[2] = 0xFF & (uid >> 8);
 	message.data[3] = 0xFF & uid;
-	message.data[4] = static_cast<uint8_t>(TrainBoxMaerklin::SubCmd::systemStatus);
+	message.data[4] = static_cast<uint8_t>(MaerklinCanInterface::SubCmd::systemStatus);
 	message.data[5] = channelNumber;
 	message.data[6] = highByte(configuration);
 	message.data[7] = lowByte(configuration);
 }
 
-void TrainBoxMaerklin::messageSetSystemIdent(TrackMessage &message, uint16_t systemIdent, uint32_t uid)
+void MaerklinCanInterface::messageSetSystemIdent(TrackMessage &message, uint16_t systemIdent, uint32_t uid)
 {
 	message.clear();
 	message.prio = static_cast<uint8_t>(MessagePrio::noPrio);
-	message.command = static_cast<uint8_t>(TrainBoxMaerklin::Cmd::systemCmd);
+	message.command = static_cast<uint8_t>(MaerklinCanInterface::Cmd::systemCmd);
 	message.length = 0x07;
 	message.data[0] = 0xFF & (uid >> 24);
 	message.data[1] = 0xFF & (uid >> 16);
 	message.data[2] = 0xFF & (uid >> 8);
 	message.data[3] = 0xFF & uid;
-	message.data[4] = static_cast<uint8_t>(TrainBoxMaerklin::SubCmd::systemIdent);
+	message.data[4] = static_cast<uint8_t>(MaerklinCanInterface::SubCmd::systemIdent);
 	message.data[5] = highByte(systemIdent);
 	message.data[6] = lowByte(systemIdent);
 }
 
-void TrainBoxMaerklin::messageSystemReset(TrackMessage &message, uint8_t resetTarget, uint32_t uid)
+void MaerklinCanInterface::messageSystemReset(TrackMessage &message, uint8_t resetTarget, uint32_t uid)
 {
 	message.clear();
 	message.prio = static_cast<uint8_t>(MessagePrio::system);
-	message.command = static_cast<uint8_t>(TrainBoxMaerklin::Cmd::systemCmd);
+	message.command = static_cast<uint8_t>(MaerklinCanInterface::Cmd::systemCmd);
 	message.length = 0x06;
 	message.data[0] = 0xFF & (uid >> 24);
 	message.data[1] = 0xFF & (uid >> 16);
 	message.data[2] = 0xFF & (uid >> 8);
 	message.data[3] = 0xFF & uid;
-	message.data[4] = static_cast<uint8_t>(TrainBoxMaerklin::SubCmd::systemReset);
+	message.data[4] = static_cast<uint8_t>(MaerklinCanInterface::SubCmd::systemReset);
 	message.data[5] = resetTarget;
 }
 
@@ -605,11 +648,11 @@ void TrainBoxMaerklin::messageSystemReset(TrackMessage &message, uint8_t resetTa
 // === LocoCmd =======================================================
 // ===================================================================
 
-void TrainBoxMaerklin::messageLocoSpeed(TrackMessage &message, uint32_t uid)
+void MaerklinCanInterface::messageLocoSpeed(TrackMessage &message, uint32_t uid)
 {
 	message.clear();
 	message.prio = static_cast<uint8_t>(MessagePrio::locoAccCommand);
-	message.command = static_cast<uint8_t>(TrainBoxMaerklin::Cmd::locoSpeed);
+	message.command = static_cast<uint8_t>(MaerklinCanInterface::Cmd::locoSpeed);
 	message.length = 0x04;
 	message.data[0] = 0xFF & (uid >> 24);
 	message.data[1] = 0xFF & (uid >> 16);
@@ -617,11 +660,11 @@ void TrainBoxMaerklin::messageLocoSpeed(TrackMessage &message, uint32_t uid)
 	message.data[3] = 0xFF & uid;
 }
 
-void TrainBoxMaerklin::messageLocoSpeed(TrackMessage &message, uint32_t uid, uint16_t speed)
+void MaerklinCanInterface::messageLocoSpeed(TrackMessage &message, uint32_t uid, uint16_t speed)
 {
 	message.clear();
 	message.prio = static_cast<uint8_t>(MessagePrio::locoAccCommand);
-	message.command = static_cast<uint8_t>(TrainBoxMaerklin::Cmd::locoSpeed);
+	message.command = static_cast<uint8_t>(MaerklinCanInterface::Cmd::locoSpeed);
 	message.length = 0x06;
 	message.data[0] = 0xFF & (uid >> 24);
 	message.data[1] = 0xFF & (uid >> 16);
@@ -631,11 +674,11 @@ void TrainBoxMaerklin::messageLocoSpeed(TrackMessage &message, uint32_t uid, uin
 	message.data[5] = lowByte(speed);
 }
 
-void TrainBoxMaerklin::messageLocoDir(TrackMessage &message, uint32_t uid)
+void MaerklinCanInterface::messageLocoDir(TrackMessage &message, uint32_t uid)
 {
 	message.clear();
 	message.prio = static_cast<uint8_t>(MessagePrio::locoAccCommand);
-	message.command = static_cast<uint8_t>(TrainBoxMaerklin::Cmd::locoDir);
+	message.command = static_cast<uint8_t>(MaerklinCanInterface::Cmd::locoDir);
 	message.length = 0x04;
 	message.data[0] = 0xFF & (uid >> 24);
 	message.data[1] = 0xFF & (uid >> 16);
@@ -643,11 +686,11 @@ void TrainBoxMaerklin::messageLocoDir(TrackMessage &message, uint32_t uid)
 	message.data[3] = 0xFF & uid;
 }
 
-void TrainBoxMaerklin::messageLocoDir(TrackMessage &message, uint32_t uid, uint8_t dir)
+void MaerklinCanInterface::messageLocoDir(TrackMessage &message, uint32_t uid, uint8_t dir)
 {
 	message.clear();
 	message.prio = static_cast<uint8_t>(MessagePrio::locoAccCommand);
-	message.command = static_cast<uint8_t>(TrainBoxMaerklin::Cmd::locoDir);
+	message.command = static_cast<uint8_t>(MaerklinCanInterface::Cmd::locoDir);
 	message.length = 0x05;
 	message.data[0] = 0xFF & (uid >> 24);
 	message.data[1] = 0xFF & (uid >> 16);
@@ -656,11 +699,11 @@ void TrainBoxMaerklin::messageLocoDir(TrackMessage &message, uint32_t uid, uint8
 	message.data[4] = dir;
 }
 
-void TrainBoxMaerklin::messageLocoFunc(TrackMessage &message, uint32_t uid, uint8_t function)
+void MaerklinCanInterface::messageLocoFunc(TrackMessage &message, uint32_t uid, uint8_t function)
 {
 	message.clear();
 	message.prio = static_cast<uint8_t>(MessagePrio::locoAccCommand);
-	message.command = static_cast<uint8_t>(TrainBoxMaerklin::Cmd::locoFunc);
+	message.command = static_cast<uint8_t>(MaerklinCanInterface::Cmd::locoFunc);
 	message.length = 0x05;
 	message.data[0] = 0xFF & (uid >> 24);
 	message.data[1] = 0xFF & (uid >> 16);
@@ -669,11 +712,11 @@ void TrainBoxMaerklin::messageLocoFunc(TrackMessage &message, uint32_t uid, uint
 	message.data[4] = function;
 }
 
-void TrainBoxMaerklin::messageLocoFunc(TrackMessage &message, uint32_t uid, uint8_t function, uint8_t value)
+void MaerklinCanInterface::messageLocoFunc(TrackMessage &message, uint32_t uid, uint8_t function, uint8_t value)
 {
 	message.clear();
 	message.prio = static_cast<uint8_t>(MessagePrio::locoAccCommand);
-	message.command = static_cast<uint8_t>(TrainBoxMaerklin::Cmd::locoFunc);
+	message.command = static_cast<uint8_t>(MaerklinCanInterface::Cmd::locoFunc);
 	message.length = 0x06;
 	message.data[0] = 0xFF & (uid >> 24);
 	message.data[1] = 0xFF & (uid >> 16);
@@ -683,11 +726,11 @@ void TrainBoxMaerklin::messageLocoFunc(TrackMessage &message, uint32_t uid, uint
 	message.data[5] = value;
 }
 
-void TrainBoxMaerklin::messageReadConfig(TrackMessage &message, uint32_t id, uint16_t cvAdr, uint8_t number)
+void MaerklinCanInterface::messageReadConfig(TrackMessage &message, uint32_t id, uint16_t cvAdr, uint8_t number)
 {
 	message.clear();
 	message.prio = static_cast<uint8_t>(MessagePrio::noPrio);
-	message.command = static_cast<uint8_t>(TrainBoxMaerklin::Cmd::locoFunc);
+	message.command = static_cast<uint8_t>(MaerklinCanInterface::Cmd::locoFunc);
 	message.length = 0x07;
 	message.data[0] = 0xFF & (id >> 24);
 	message.data[1] = 0xFF & (id >> 16);
@@ -698,11 +741,11 @@ void TrainBoxMaerklin::messageReadConfig(TrackMessage &message, uint32_t id, uin
 	message.data[6] = number;
 }
 
-void TrainBoxMaerklin::messageWriteConfig(TrackMessage &message, uint32_t id, uint16_t cvAdr, uint8_t value, bool directProc, bool writeByte)
+void MaerklinCanInterface::messageWriteConfig(TrackMessage &message, uint32_t id, uint16_t cvAdr, uint8_t value, bool directProc, bool writeByte)
 {
 	message.clear();
 	message.prio = static_cast<uint8_t>(MessagePrio::noPrio);
-	message.command = static_cast<uint8_t>(TrainBoxMaerklin::Cmd::locoFunc);
+	message.command = static_cast<uint8_t>(MaerklinCanInterface::Cmd::locoFunc);
 	message.length = 0x08;
 	message.data[0] = 0xFF & (id >> 24);
 	message.data[1] = 0xFF & (id >> 16);
@@ -714,11 +757,11 @@ void TrainBoxMaerklin::messageWriteConfig(TrackMessage &message, uint32_t id, ui
 	message.data[7] = directProc ? 0 : (writeByte ? 1 : 2);
 }
 
-void TrainBoxMaerklin::messageAccSwitch(TrackMessage &message, uint32_t uid, uint8_t position, uint8_t current)
+void MaerklinCanInterface::messageAccSwitch(TrackMessage &message, uint32_t uid, uint8_t position, uint8_t current)
 {
 	message.clear();
 	message.prio = static_cast<uint8_t>(MessagePrio::locoAccCommand);
-	message.command = static_cast<uint8_t>(TrainBoxMaerklin::Cmd::accSwitch);
+	message.command = static_cast<uint8_t>(MaerklinCanInterface::Cmd::accSwitch);
 	message.length = 0x06;
 	message.data[0] = 0xFF & (uid >> 24);
 	message.data[1] = 0xFF & (uid >> 16);
@@ -728,11 +771,11 @@ void TrainBoxMaerklin::messageAccSwitch(TrackMessage &message, uint32_t uid, uin
 	message.data[5] = current;
 }
 
-void TrainBoxMaerklin::messageAccSwitch(TrackMessage &message, uint32_t uid, uint8_t position, uint8_t current, uint16_t switchTimeIN10ms)
+void MaerklinCanInterface::messageAccSwitch(TrackMessage &message, uint32_t uid, uint8_t position, uint8_t current, uint16_t switchTimeIN10ms)
 {
 	message.clear();
 	message.prio = static_cast<uint8_t>(MessagePrio::locoAccCommand);
-	message.command = static_cast<uint8_t>(TrainBoxMaerklin::Cmd::accSwitch);
+	message.command = static_cast<uint8_t>(MaerklinCanInterface::Cmd::accSwitch);
 	message.length = 0x08;
 	message.data[0] = 0xFF & (uid >> 24);
 	message.data[1] = 0xFF & (uid >> 16);
@@ -744,19 +787,19 @@ void TrainBoxMaerklin::messageAccSwitch(TrackMessage &message, uint32_t uid, uin
 	message.data[7] = lowByte(switchTimeIN10ms);
 }
 
-void TrainBoxMaerklin::messagePing(TrackMessage &message)
+void MaerklinCanInterface::messagePing(TrackMessage &message)
 {
 	message.clear();
 	message.prio = static_cast<uint8_t>(MessagePrio::noPrio);
-	message.command = static_cast<uint8_t>(TrainBoxMaerklin::Cmd::ping);
+	message.command = static_cast<uint8_t>(MaerklinCanInterface::Cmd::ping);
 	message.length = 0x00;
 }
 
-void TrainBoxMaerklin::messagePing(TrackMessage &message, uint32_t uid, uint16_t swVersion, uint16_t hwIdent)
+void MaerklinCanInterface::messagePing(TrackMessage &message, uint32_t uid, uint16_t swVersion, uint16_t hwIdent)
 {
 	message.clear();
 	message.prio = static_cast<uint8_t>(MessagePrio::noPrio);
-	message.command = static_cast<uint8_t>(TrainBoxMaerklin::Cmd::ping);
+	message.command = static_cast<uint8_t>(MaerklinCanInterface::Cmd::ping);
 	message.length = 0x08;
 	message.data[0] = 0xFF & (uid >> 24);
 	message.data[1] = 0xFF & (uid >> 16);
@@ -768,102 +811,131 @@ void TrainBoxMaerklin::messagePing(TrackMessage &message, uint32_t uid, uint16_t
 	message.data[7] = lowByte(hwIdent);
 }
 
+void MaerklinCanInterface::messageStatusDataConfig(TrackMessage &message, uint32_t uid, uint8_t index)
+{
+	message.clear();
+	message.prio = static_cast<uint8_t>(MessagePrio::noPrio);
+	message.command = static_cast<uint8_t>(MaerklinCanInterface::Cmd::statusDataConfig);
+	message.length = 0x05;
+	message.data[0] = 0xFF & (uid >> 24);
+	message.data[1] = 0xFF & (uid >> 16);
+	message.data[2] = 0xFF & (uid >> 8);
+	message.data[3] = 0xFF & uid;
+	message.data[4] = index;
+}
+
+void MaerklinCanInterface::messageConfigData(TrackMessage &message, String request)
+{
+	message.clear();
+	message.prio = static_cast<uint8_t>(MessagePrio::noPrio);
+	message.command = static_cast<uint8_t>(MaerklinCanInterface::Cmd::requestConfigData);
+	message.length = 0x08;
+	if (8 > request.length())
+	{
+		memcpy(message.data, request.c_str(), message.length);
+	}
+	else
+	{
+		memcpy(message.data, request.c_str(), request.length());
+	}
+}
+
 // ===================================================================
 // === SystemCmd =====================================================
 // ===================================================================
 
-bool TrainBoxMaerklin::sendSystemStop(uint32_t uid)
+bool MaerklinCanInterface::sendSystemStop(uint32_t uid)
 {
 	TrackMessage message;
 	messageSystemStop(message, uid);
 	return sendMessage(message);
 }
 
-bool TrainBoxMaerklin::sendSystemGo(uint32_t uid)
+bool MaerklinCanInterface::sendSystemGo(uint32_t uid)
 {
 	TrackMessage message;
 	messageSystemGo(message, uid);
 	return sendMessage(message);
 }
 
-bool TrainBoxMaerklin::sendSystemHalt(uint32_t uid)
+bool MaerklinCanInterface::sendSystemHalt(uint32_t uid)
 {
 	TrackMessage message;
 	messageSystemHalt(message, uid);
 	return sendMessage(message);
 }
 
-bool TrainBoxMaerklin::sendLocoStop(uint32_t uid)
+bool MaerklinCanInterface::sendLocoStop(uint32_t uid)
 {
 	TrackMessage message;
 	messageLocoStop(message, uid);
 	return sendMessage(message);
 }
 
-bool TrainBoxMaerklin::sendLocoRemoveCycle(uint32_t uid)
+bool MaerklinCanInterface::sendLocoRemoveCycle(uint32_t uid)
 {
 	TrackMessage message;
 	messageLocoRemoveCycle(message, uid);
 	return sendMessage(message);
 }
 
-bool TrainBoxMaerklin::sendLocoDataProtocol(uint32_t uid, ProtocolLoco protocol)
+bool MaerklinCanInterface::sendLocoDataProtocol(uint32_t uid, ProtocolLoco protocol)
 {
 	TrackMessage message;
 	messageLocoDataProtocol(message, uid, protocol);
 	return sendMessage(message);
 }
 
-bool TrainBoxMaerklin::sendAccTime(uint16_t accTimeIN10ms, uint32_t uid)
+bool MaerklinCanInterface::sendAccTime(uint16_t accTimeIN10ms, uint32_t uid)
 {
 	TrackMessage message;
 	messageAccTime(message, accTimeIN10ms, uid);
 	return sendMessage(message);
 }
 
-bool TrainBoxMaerklin::sendFastReadMfx(uint16_t mfxSid, uint32_t uid)
+bool MaerklinCanInterface::sendFastReadMfx(uint16_t mfxSid, uint32_t uid)
 {
 	TrackMessage message;
 	messageFastReadMfx(message, mfxSid, uid);
 	return sendMessage(message);
 }
 
-bool TrainBoxMaerklin::sendSetTrackProtocol(uint8_t protocols, uint32_t uid)
+bool MaerklinCanInterface::sendSetTrackProtocol(uint8_t protocols, uint32_t uid)
 {
 	TrackMessage message;
 	messageSetTrackProtocol(message, protocols, uid);
 	return sendMessage(message);
 }
 
-bool TrainBoxMaerklin::sendSetMfxCounter(uint16_t counter, uint32_t uid)
+bool MaerklinCanInterface::sendSetMfxCounter(uint16_t counter, uint32_t uid)
 {
 	TrackMessage message;
 	messageSetMfxCounter(message, counter, uid);
 	return sendMessage(message);
 }
 
-bool TrainBoxMaerklin::sendSystemStatus(uint8_t channelNumber, uint32_t uid)
+bool MaerklinCanInterface::sendSystemStatus(uint8_t channelNumber, uint32_t uid)
 {
 	TrackMessage message;
 	messageSystemStatus(message, channelNumber, uid);
 	return sendMessage(message);
 }
 
-bool TrainBoxMaerklin::sendSystemStatus(uint8_t channelNumber, uint16_t configuration, uint32_t uid)
+bool MaerklinCanInterface::sendSystemStatus(uint8_t channelNumber, uint16_t configuration, uint32_t uid)
 {
 	TrackMessage message;
 	messageSystemStatus(message, channelNumber, configuration, uid);
 	return sendMessage(message);
 }
 
-bool TrainBoxMaerklin::sendSetSystemIdent(uint16_t systemIdent, uint32_t uid)
+bool MaerklinCanInterface::sendSetSystemIdent(uint16_t systemIdent, uint32_t uid)
 {
 	TrackMessage message;
 	messageSetSystemIdent(message, systemIdent, uid);
 	return sendMessage(message);
 }
 
-bool TrainBoxMaerklin::sendSystemReset(uint8_t resetTarget, uint32_t uid)
+bool MaerklinCanInterface::sendSystemReset(uint8_t resetTarget, uint32_t uid)
 {
 	TrackMessage message;
 	messageSystemReset(message, resetTarget, uid);
@@ -874,88 +946,110 @@ bool TrainBoxMaerklin::sendSystemReset(uint8_t resetTarget, uint32_t uid)
 // === LocoCmd =======================================================
 // ===================================================================
 
-bool TrainBoxMaerklin::requestLocoSpeed(uint32_t uid)
+bool MaerklinCanInterface::requestLocoSpeed(uint32_t uid)
 {
 	TrackMessage message;
 	messageLocoSpeed(message, uid);
 	return sendMessage(message);
 }
 
-bool TrainBoxMaerklin::setLocoSpeed(uint32_t uid, uint16_t speed)
+bool MaerklinCanInterface::setLocoSpeed(uint32_t uid, uint16_t speed)
 {
 	TrackMessage message;
 	messageLocoSpeed(message, uid, speed);
 	return sendMessage(message);
 }
 
-bool TrainBoxMaerklin::requestLocoDir(uint32_t uid)
+bool MaerklinCanInterface::requestLocoDir(uint32_t uid)
 {
 	TrackMessage message;
 	messageLocoDir(message, uid);
 	return sendMessage(message);
 }
 
-bool TrainBoxMaerklin::setLocoDir(uint32_t uid, uint8_t dir)
+bool MaerklinCanInterface::setLocoDir(uint32_t uid, uint8_t dir)
 {
 	TrackMessage message;
 	messageLocoDir(message, uid, dir);
 	return sendMessage(message);
 }
 
-bool TrainBoxMaerklin::requestLocoFunc(uint32_t uid, uint8_t function)
+bool MaerklinCanInterface::requestLocoFunc(uint32_t uid, uint8_t function)
 {
 	TrackMessage message;
 	messageLocoFunc(message, uid, function);
 	return sendMessage(message);
 }
 
-bool TrainBoxMaerklin::setLocoFunc(uint32_t uid, uint8_t function, uint8_t value)
+bool MaerklinCanInterface::setLocoFunc(uint32_t uid, uint8_t function, uint8_t value)
 {
 	TrackMessage message;
 	messageLocoFunc(message, uid, function, value);
 	return sendMessage(message);
 }
 
-bool TrainBoxMaerklin::sendReadConfig(uint32_t id, uint16_t cvAdr, uint8_t number)
+bool MaerklinCanInterface::sendReadConfig(uint32_t id, uint16_t cvAdr, uint8_t number)
 {
 	TrackMessage message;
 	messageReadConfig(message, id, cvAdr, number);
 	return sendMessage(message);
 }
 
-bool TrainBoxMaerklin::sendWriteConfig(uint32_t id, uint16_t cvAdr, uint8_t value, bool directProc, bool writeByte)
+bool MaerklinCanInterface::sendWriteConfig(uint32_t id, uint16_t cvAdr, uint8_t value, bool directProc, bool writeByte)
 {
 	TrackMessage message;
 	messageWriteConfig(message, id, cvAdr, value, directProc, writeByte);
 	return sendMessage(message);
 }
 
-bool TrainBoxMaerklin::setAccSwitch(uint32_t uid, uint8_t position, uint8_t current)
+bool MaerklinCanInterface::setAccSwitch(uint32_t uid, uint8_t position, uint8_t current)
 {
 	TrackMessage message;
 	messageAccSwitch(message, uid, position, current);
 	return sendMessage(message);
 }
 
-bool TrainBoxMaerklin::setAccSwitch(uint32_t uid, uint8_t position, uint8_t current, uint16_t switchTimeIN10ms)
+bool MaerklinCanInterface::setAccSwitch(uint32_t uid, uint8_t position, uint8_t current, uint16_t switchTimeIN10ms)
 {
 	TrackMessage message;
 	messageAccSwitch(message, uid, position, current, switchTimeIN10ms);
 	return sendMessage(message);
 }
 
-bool TrainBoxMaerklin::sendPing()
+bool MaerklinCanInterface::sendPing()
 {
 	TrackMessage message;
 	messagePing(message);
 	return sendMessage(message);
 }
 
-bool TrainBoxMaerklin::sendPing(uint32_t uid, uint16_t swVersion, uint16_t hwIdent)
+bool MaerklinCanInterface::sendPing(uint32_t uid, uint16_t swVersion, uint16_t hwIdent)
 {
 	TrackMessage message;
 	messagePing(message, uid, swVersion, hwIdent);
 	return sendMessage(message);
+}
+
+bool MaerklinCanInterface::requestStatusDataConfig(uint32_t uid, uint8_t index)
+{
+	TrackMessage message;
+	messageStatusDataConfig(message, uid, index);
+	return sendMessage(message);
+}
+
+bool MaerklinCanInterface::requestConfigData(String request)
+{
+	TrackMessage message;
+	int8_t length = static_cast<int8_t>(request.length());
+	bool success{true};
+
+	for (size_t i = 0; length > 0; i++)
+	{
+		messageConfigData(message, request.substring(i*8, length));
+		success |= sendMessage(message);
+		length -= 8;
+	}
+	return success;
 }
 
 // ===================================================================

@@ -17,7 +17,7 @@
 #pragma once
 
 #include <Arduino.h>
-#include "trainBoxMaerklin/TrainBoxMaerklin.h"
+#include "trainBoxMaerklin/MaerklinCanInterface.h"
 #include "trainBoxMaerklin/CanInterface.h"
 #include "Helper/Observer.h"
 #include <driver/can.h>
@@ -25,7 +25,7 @@
 //#define CAN_DEBUG
 
 
-class TrainBoxMaerklinEsp32 : public TrainBoxMaerklin, public Observer
+class MaerklinCanInterfaceEsp32 : public MaerklinCanInterface, public Observer
 {
     public:
 
@@ -34,13 +34,13 @@ class TrainBoxMaerklinEsp32 : public TrainBoxMaerklin, public Observer
 	 * Creates a new TrackController with the given hash and debugging
 	 * flag. A zero hash will result in a unique hash begin generated.
 	 */
-    TrainBoxMaerklinEsp32(CanInterface& canInterface, word hash, bool debug);
+    MaerklinCanInterfaceEsp32(CanInterface& canInterface, word hash, bool debug);
 
     /**
      * Is called when a TrackController is being destroyed. Does the
      * necessary cleanup. No need to call this manually.
      */
-    ~TrainBoxMaerklinEsp32();
+    virtual ~MaerklinCanInterfaceEsp32();
 
     /**
      * Initializes the CAN hardware and starts receiving CAN

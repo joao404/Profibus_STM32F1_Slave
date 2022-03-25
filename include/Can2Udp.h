@@ -28,7 +28,7 @@ class Can2Udp : public Observer
 {
     public:
         Can2Udp(CanInterface& canInterface, bool debug);
-        ~Can2Udp();
+        virtual ~Can2Udp();
         void begin(int localPort = 15731, int destinationPort = 15730);
     private:
         bool m_debug;

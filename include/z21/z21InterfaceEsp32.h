@@ -19,7 +19,7 @@ typedef struct		//Rückmeldung des Status der Programmierung
 class z21InterfaceEsp32:public z21Interface
 {
   public:
-    z21InterfaceEsp32(HwType hwType, uint16_t swVersion, uint16_t port,  boolean debug);
+    z21InterfaceEsp32(HwType hwType, uint32_t swVersion, uint16_t port,  boolean debug);
 
     void begin();
     void cyclic();

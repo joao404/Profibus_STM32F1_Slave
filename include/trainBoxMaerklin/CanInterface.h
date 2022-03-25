@@ -24,7 +24,7 @@ class CanInterface : public Observable
 {
 public:
     CanInterface();
-    ~CanInterface();
+    virtual ~CanInterface();
 
     void begin();
 

@@ -14,31 +14,31 @@
  * LICENSE file for more details.
  */
 
-#include "trainBoxMaerklin/TrainBoxMaerklinEsp32.h"
+#include "trainBoxMaerklin/MaerklinCanInterfaceEsp32.h"
 
-TrainBoxMaerklinEsp32::TrainBoxMaerklinEsp32(CanInterface &canInterface, word hash, bool debug)
-    : TrainBoxMaerklin(hash, debug),
+MaerklinCanInterfaceEsp32::MaerklinCanInterfaceEsp32(CanInterface &canInterface, word hash, bool debug)
+    : MaerklinCanInterface(hash, debug),
       m_canInterface(canInterface)
 {
 }
 
-TrainBoxMaerklinEsp32::~TrainBoxMaerklinEsp32()
+MaerklinCanInterfaceEsp32::~MaerklinCanInterfaceEsp32()
 {
   end();
 }
 
-void TrainBoxMaerklinEsp32::end()
+void MaerklinCanInterfaceEsp32::end()
 {
 }
 
-void TrainBoxMaerklinEsp32::begin()
+void MaerklinCanInterfaceEsp32::begin()
 {
   m_canInterface.attach(*this);
 
-  TrainBoxMaerklin::begin();
+  MaerklinCanInterface::begin();
 }
 
-void TrainBoxMaerklinEsp32::update(Observable &observable, void *data)
+void MaerklinCanInterfaceEsp32::update(Observable &observable, void *data)
 {
   if (&observable == &m_canInterface)
   {
@@ -70,7 +70,7 @@ void TrainBoxMaerklinEsp32::update(Observable &observable, void *data)
   }
 }
 
-bool TrainBoxMaerklinEsp32::sendMessage(TrackMessage &message)
+bool MaerklinCanInterfaceEsp32::sendMessage(TrackMessage &message)
 {
   can_message_t tx_frame;
 
@@ -98,7 +98,7 @@ bool TrainBoxMaerklinEsp32::sendMessage(TrackMessage &message)
   return m_canInterface.transmit(tx_frame, 100u);
 }
 
-bool TrainBoxMaerklinEsp32::receiveMessage(TrackMessage &message)
+bool MaerklinCanInterfaceEsp32::receiveMessage(TrackMessage &message)
 {
   can_message_t rx_frame;
 

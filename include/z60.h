@@ -1,5 +1,5 @@
 /*********************************************************************
- * z21
+ * z60
  *
  * Copyright (C) 2022 Marcel Maage
  * 
@@ -16,19 +16,25 @@
 
 #pragma once
 
-#include "trainBoxMaerklin/TrainBoxMaerklinEsp32.h"
+#include "trainBoxMaerklin/MaerklinCanInterfaceEsp32.h"
+#include "trainBoxMaerklin/MaerklinLocoManagment.h"
 #include "z21/z21InterfaceEsp32.h"
 #include <unordered_map>
 #include <list>
+#include <vector>
 #include "Preferences.h"
 
-class z21 : public TrainBoxMaerklinEsp32, private z21InterfaceEsp32
+class z60 : public MaerklinCanInterfaceEsp32, private z21InterfaceEsp32
 {
 public:
-    z21(CanInterface& canInterface, HwType hwType, uint16_t swVersion, int16_t port, uint16_t hash, bool debug);
-    ~z21();
+    z60(CanInterface& canInterface, HwType hwType, uint32_t serialNumber, uint32_t swVersion, int16_t port, uint16_t hash, bool debug);
+    virtual ~z60();
     void begin();
     void cyclic();
+
+    void setProgramming(bool isActiv);
+
+    void setLocoManagment(MaerklinLocoManagment* locomanagment);
 
     struct DataLoco
     {
@@ -47,13 +53,13 @@ public:
     };
 
 private:
-    const uint32_t z21Uid{0xBADEAFFE};
+    //const uint32_t z21Uid{0xBADEAFFE};
 
-    uint32_t m_trainBoxUid;
-
-    uint16_t m_hwIdent;
+    uint16_t m_serialNumber;
 
     Preferences m_preferences;
+
+    bool m_programmingActiv;
 
     const char* m_namespaceZ21 {"z21"};
 
@@ -81,14 +87,20 @@ private:
     //std::array<uint8_t, 32> turnOutMode;
     uint8_t m_turnOutMode[128];
 
-    bool directProgramming;
+    bool m_directProgramming;
 
     const unsigned long minimumCmdIntervalINms {100};
 
+    
+    std::vector<uint32_t> m_hashTrainbox;
 
-    uint16_t m_currentINmA = 0;
-    uint16_t m_voltageINmV = 0;
-    uint16_t m_tempIN10_2deg = 0;
+    std::vector<uint32_t> m_hashMobileStation;
+
+    MaerklinLocoManagment* m_locomanagment;
+
+    uint16_t m_currentINmA {0};
+    uint16_t m_voltageINmV {0};
+    uint16_t m_tempIN10_2deg {0};
 
     void saveLocoConfig();
 
@@ -159,6 +171,20 @@ private:
     bool onAccSwitch(uint32_t id, uint8_t position, uint8_t current) override;
 
     bool onPing(uint32_t id, uint16_t swVersion, uint16_t hwIdent) override;
+    
+    bool onStatusDataConfig(uint16_t hash, std::array<uint8_t, 8>& data) override;
+
+    bool onStatusDataConfig(uint16_t hash, uint32_t uid, uint8_t index, uint8_t length) override;
+
+    bool onConfigDataStream(uint16_t hash, uint32_t streamlength, uint16_t crc) override;
+
+    bool onConfigDataStream(uint16_t hash, uint32_t streamlength, uint16_t crc, uint8_t res) override;
+
+    bool onConfigDataStream(uint16_t hash, std::array<uint8_t, 8>& data) override;
+
+    bool onConfigDataSteamError(uint16_t hash) override;
+
+
     // Z21
 
     void handleGetLocoMode(uint16_t adr, uint8_t& mode) override;

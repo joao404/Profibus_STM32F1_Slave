@@ -24,18 +24,28 @@
 #include <AutoConnect.h>
 
 #include "trainBoxMaerklin/CanInterface.h"
-#include "z21.h"
+#include "trainBoxMaerklin/MaerklinLocoManagment.h"
+#include "z60.h"
 #include "Can2Udp.h"
 
-#define defaultPassword "12345678" // Default Z21 network password
+#define defaultPassword "12345678" // Default Z60 network password
 
 WebServer webServer;
 AutoConnect autoConnect(webServer);
 AutoConnectConfig configAutoConnect;
 
+AutoConnectAux auxZ60Config("/z60config", "Z60 Config");
+ACCheckbox(progActive, "progActive", "Trackprogramming activ",false);
+ACSubmit(submit, "Save", "/z60config_save");
+ACText(readingLocoHeader, "Press this button to trigger reading of current loco list from Mobile Station with lowest uid (Master)");
+ACSubmit(readingLoco, "Reading Loco", "/readingLocoList");
+
+
 CanInterface canInterface;
 
-z21 centralStation(canInterface, z21Interface::HwType::Z21_XL, 0x0140, 21105, 0, true);
+z60 centralStation(canInterface, z21Interface::HwType::Z21_XL, 0xFFFFFFF0, 0x0140, 21105, 0, true);
+
+MaerklinLocoManagment locoManagment(0x0, centralStation);
 
 Can2Udp can2Udp(canInterface, false);
 
@@ -46,7 +56,7 @@ void setup()
 
   autoConnect.onNotFound([]()
                        {
-    String message = "File Not Found\n\n";
+    String message = "File Not Found\n";
     message += "URI: ";
     message += webServer.uri();
     message += "\nMethod: ";
@@ -68,7 +78,11 @@ void setup()
     webServer.on("/config/prefs.cs2",[]()
     {
       Serial.println("prefs requested");
-    webServer.send(200, "text/plain", "[prefs]\n"); });
+    webServer.send(200, "text/plain", "[Preferences]\nversion\n .minor=2\npage\n .entry\n ..key=Vergabe\n ..value=auto (DHCP)\n"
+    " .entry\n ..key=Mac-Adresse\n ..value=00:80:82:8A:99:46\n .entry ..key=IpAdresse ..value=192.168.4.1\n .entry\n"
+    " ..key=NetzMaske\n ..value=255.255.255.0\n .entry\n ..key=IpGateway\n ..value=...\n .entry\n ..key=IpDNS\n"
+    " ..value=192.168.4.1\npage\n .entry\n ..key=CANGateway\n ..value=auto\n ..id=1\n .entry\n ..key=GwZielAddr\n"
+    " ..value=192.168.4.255\npage\n .entry\n ..key=Version"); });
     webServer.on("/config/lokomotive.cs2",[]()
     {
       Serial.println("lokomotive requested");
@@ -88,7 +102,7 @@ void setup()
   configAutoConnect.beginTimeout = 15000;
   configAutoConnect.autoReset = false;
 
-  configAutoConnect.homeUri = "/_ac";
+  configAutoConnect.homeUri = "/z60config";
 
   // reconnect with last ssid in handleClient
   configAutoConnect.autoReconnect = true;
@@ -101,6 +115,11 @@ void setup()
   configAutoConnect.retainPortal = true;
 
   autoConnect.config(configAutoConnect);
+
+  auxZ60Config.add({progActive, submit, readingLocoHeader, readingLoco});
+
+  autoConnect.join(auxZ60Config);
+
   autoConnect.begin();
 
   // WiFi.softAP("z60AP", defaultPassword);
@@ -109,6 +128,8 @@ void setup()
   // Serial.println(myIP);
 
   canInterface.begin();
+
+  centralStation.setLocoManagment(&locoManagment);
 
   centralStation.begin();
 

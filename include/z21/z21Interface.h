@@ -40,7 +40,7 @@ struct TypeActIP
 class z21Interface
 {
 public:
-	enum class HwType : uint16_t
+	enum class HwType : uint32_t
 	{
 		Z21_OLD = 0x00000200,			 // schwarze Z21 (Hardware-Variante ab 2012)
 		Z21_NEW = 0x00000201,			 // schwarze Z21(Hardware-Variante ab 2013)
@@ -213,7 +213,7 @@ protected:
 
 	// user-accessible "public" interface
 public:
-	z21Interface(HwType hwType, uint16_t swVersion, boolean debug); // Constuctor
+	z21Interface(HwType hwType, uint32_t swVersion, boolean debug); // Constuctor
 
 	void receive(uint8_t client, uint8_t *packet); // Pr�fe auf neue Ethernet Daten
 

@@ -20,7 +20,8 @@
 
 #include <Arduino.h>
 #include <Printable.h>
-
+#include <String>
+#include <array>
 
 class TrackMessage : public Printable {
 
@@ -84,7 +85,7 @@ class TrackMessage : public Printable {
 };
 
 
-class TrainBoxMaerklin {
+class MaerklinCanInterface {
 
     public:
         enum class ProtocolLoco : uint8_t
@@ -142,9 +143,9 @@ class TrainBoxMaerklin {
             readConfigData = 0x1A,//TODO
             bootloaderCanBind = 0x1B,//TODO
             bootloaderTrackBind = 0x1C,//TODO
-            statusDataConfig = 0x1D,//TODO
-            requestConfigData = 0x20,//TODO
-            configDataSteam = 0x21,//TODO
+            statusDataConfig = 0x1D,
+            requestConfigData = 0x20,
+            configDataSteam = 0x21,
             connect6021 = 0x22//TODO
         };
 
@@ -176,17 +177,17 @@ class TrainBoxMaerklin {
 
     protected:
 
+        MaerklinCanInterface(word hash, bool debug);
+
+        virtual ~MaerklinCanInterface();
+
 	    uint16_t m_hash;
 
 	    bool m_debug;
 
-	    void generateHash();
+	    virtual void begin();
 
-        TrainBoxMaerklin(word hash, bool debug);
-
-        ~TrainBoxMaerklin();
-
-        virtual void begin();
+        void generateHash();
 
         uint16_t getHash();
 
@@ -250,9 +251,23 @@ class TrainBoxMaerklin {
 
         virtual bool onWriteConfig(uint32_t id, uint16_t cvAdr, uint8_t value, bool writeSuccessful, bool verified){return false;};
 
-        virtual bool  onAccSwitch(uint32_t id, uint8_t position, uint8_t current){return false;}
+        virtual bool onAccSwitch(uint32_t id, uint8_t position, uint8_t current){return false;}
 
-        virtual bool  onPing(uint32_t id, uint16_t swVersion, uint16_t hwIdent){return false;}
+        virtual bool onPing(uint32_t id, uint16_t swVersion, uint16_t hwIdent){return false;}
+
+        virtual bool onStatusDataConfig(uint16_t hash, std::array<uint8_t, 8>& data){return false;}
+
+        virtual bool onStatusDataConfig(uint16_t hash, uint32_t uid, uint8_t index, uint8_t length){return false;}
+
+        virtual bool onConfigData(std::array<uint8_t, 8> data){return false;}
+
+        virtual bool onConfigDataStream(uint16_t hash, uint32_t streamlength, uint16_t crc){return false;}
+
+        virtual bool onConfigDataStream(uint16_t hash, uint32_t streamlength, uint16_t crc, uint8_t res){return false;}
+
+        virtual bool onConfigDataStream(uint16_t hash, std::array<uint8_t, 8>& data){return false;}
+
+        virtual bool onConfigDataSteamError(uint16_t hash){return false;}
 
     public:
         void messageSystemStop(TrackMessage& message, uint32_t uid = 0);
@@ -306,6 +321,11 @@ class TrainBoxMaerklin {
         void messagePing(TrackMessage &message);
 
         void messagePing(TrackMessage& message, uint32_t uid, uint16_t swVersion, uint16_t hwIdent);
+
+        void messageStatusDataConfig(TrackMessage &message, uint32_t uid, uint8_t index);
+
+        void messageConfigData(TrackMessage& message, String request);
+
 
         bool exchangeMessage(TrackMessage &out, TrackMessage &in,  word timeout);
 
@@ -367,4 +387,8 @@ class TrainBoxMaerklin {
         bool sendPing();
 
         bool sendPing(uint32_t uid, uint16_t swVersion, uint16_t hwIdent);
+
+        bool requestStatusDataConfig(uint32_t uid, uint8_t index);
+
+        bool requestConfigData(String request);
 };
