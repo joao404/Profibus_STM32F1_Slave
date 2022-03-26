@@ -2,7 +2,7 @@
  * Z21 ESP
  *
  * Copyright (C) 2022 Marcel Maage
- * 
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -34,12 +34,10 @@ WebServer webServer;
 AutoConnect autoConnect(webServer);
 AutoConnectConfig configAutoConnect;
 
-AutoConnectAux auxZ60Config("/z60config", "Z60 Config");
-ACCheckbox(progActive, "progActive", "Trackprogramming activ",false);
-ACSubmit(submit, "Save", "/z60config_save");
-ACText(readingLocoHeader, "Press this button to trigger reading of current loco list from Mobile Station with lowest uid (Master)");
-ACSubmit(readingLoco, "Reading Loco", "/readingLocoList");
-
+AutoConnectAux auxZ60Config("/", "Z60 Config");
+ACCheckbox(progActive, "progActive", "Trackprogramming activ", false);
+ACCheckbox(readingLoco, "readingLoco", "Read locos from Mobile Station", false);
+ACSubmit(saveButton, "Save", "/z60configured");
 
 CanInterface canInterface;
 
@@ -49,42 +47,28 @@ MaerklinLocoManagment locoManagment(0x0, centralStation);
 
 Can2Udp can2Udp(canInterface, false);
 
+std::vector<uint8_t> bufferLocoList;
+
 /**********************************************************************************/
 void setup()
 {
   Serial.begin(230000); // UDP to Serial Kommunikation
 
-  autoConnect.onNotFound([]()
-                       {
-    String message = "File Not Found\n";
-    message += "URI: ";
-    message += webServer.uri();
-    message += "\nMethod: ";
-    message += (webServer.method() == HTTP_GET) ? "GET" : "POST";
-    message += "\nArguments: ";
-    message += webServer.args();
-    message += "\n";
-    Serial.print(message);
-    for (uint8_t i = 0; i < webServer.args(); i++) {
-     message += " " + webServer.argName(i) + ": " + webServer.arg(i) + "\n";
-    }
-    webServer.send(404, "text/plain", message); });
-
-    webServer.on("/can",[]()
-    {
+  webServer.on("/can", []()
+               {
       Serial.println("Can requested");
     webServer.send(200, "text/plain", "Can is here"); });
 
-    webServer.on("/config/prefs.cs2",[]()
-    {
+  webServer.on("/config/prefs.cs2", []()
+               {
       Serial.println("prefs requested");
     webServer.send(200, "text/plain", "[Preferences]\nversion\n .minor=2\npage\n .entry\n ..key=Vergabe\n ..value=auto (DHCP)\n"
     " .entry\n ..key=Mac-Adresse\n ..value=00:80:82:8A:99:46\n .entry ..key=IpAdresse ..value=192.168.4.1\n .entry\n"
     " ..key=NetzMaske\n ..value=255.255.255.0\n .entry\n ..key=IpGateway\n ..value=...\n .entry\n ..key=IpDNS\n"
     " ..value=192.168.4.1\npage\n .entry\n ..key=CANGateway\n ..value=auto\n ..id=1\n .entry\n ..key=GwZielAddr\n"
     " ..value=192.168.4.255\npage\n .entry\n ..key=Version"); });
-    webServer.on("/config/lokomotive.cs2",[]()
-    {
+  webServer.on("/config/lokomotive.cs2", []()
+               {
       Serial.println("lokomotive requested");
     webServer.send(200, "text/plain", "[lokomotive]\n version\n .major=0\n .minor=1\n session\n .id=1\n"
     " lokomotive\n .uid=0x48\n .name=DHG300\n .adresse=0x48\n .typ=mm2_prg\n .sid=0x1\n .mfxuid=0x0\n"
@@ -102,7 +86,7 @@ void setup()
   configAutoConnect.beginTimeout = 15000;
   configAutoConnect.autoReset = false;
 
-  configAutoConnect.homeUri = "/z60config";
+  configAutoConnect.homeUri = "/";
 
   // reconnect with last ssid in handleClient
   configAutoConnect.autoReconnect = true;
@@ -116,9 +100,47 @@ void setup()
 
   autoConnect.config(configAutoConnect);
 
-  auxZ60Config.add({progActive, submit, readingLocoHeader, readingLoco});
+  autoConnect.onNotFound([]()
+  {
+    String message = "File Not Found\n";
+    message += "URI: ";
+    message += webServer.uri();
+    message += "\nMethod: ";
+    message += (webServer.method() == HTTP_GET) ? "GET" : "POST";
+    message += "\nArguments: ";
+    message += webServer.args();
+    message += "\n";
+    for (uint8_t i = 0; i < webServer.args(); i++) {
+     message += " " + webServer.argName(i) + ": " + webServer.arg(i) + "\n";
+    }
+    Serial.print(message);
+    webServer.send(404, "text/plain", message); 
+  });
+
+  auxZ60Config.add({progActive, readingLoco, saveButton});
 
   autoConnect.join(auxZ60Config);
+
+  webServer.on("/z60configured", []()
+  {
+    if (webServer.hasArg("progActive"))
+    {
+      Serial.println("setProgramming(true)");
+      centralStation.setProgramming(true);
+    }
+    else
+    {
+      Serial.println("setProgramming(false)");
+      centralStation.setProgramming(false);
+    }
+    if (webServer.hasArg("readingLoco"))
+    {
+      Serial.println("trigger loco reading");
+      const char lokliste[] = "lokliste";
+      locoManagment.requestConfigData(lokliste, bufferLocoList);
+    }
+    webServer.send(200, "text/plain", "Success"); 
+  });
 
   autoConnect.begin();
 
@@ -136,6 +158,8 @@ void setup()
   can2Udp.begin();
 
   Serial.println("OK"); // start - reset serial receive Buffer
+
+  // this buffer will be copied to file system and be available via webserver
 }
 
 /**********************************************************************************/

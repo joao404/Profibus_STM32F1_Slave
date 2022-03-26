@@ -709,6 +709,7 @@ bool z60::onConfigDataStream(uint16_t hash, uint32_t streamlength, uint16_t crc,
   {
     return m_locomanagment->onConfigDataStream(hash, streamlength, crc, res);
   }
+  return false;
 }
 
 bool z60::onConfigDataStream(uint16_t hash, std::array<uint8_t, 8>& data)

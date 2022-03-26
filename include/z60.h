@@ -32,7 +32,9 @@ public:
     void begin();
     void cyclic();
 
-    void setProgramming(bool isActiv);
+    void setProgramming(bool isActiv){m_programmingActiv = isActiv;}
+
+    bool isProgrammingActiv(){return m_programmingActiv;}
 
     void setLocoManagment(MaerklinLocoManagment* locomanagment);
 

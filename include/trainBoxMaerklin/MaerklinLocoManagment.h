@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <trainBoxMaerklin/MaerklinCanInterface.h>
 #include <array>
+#include "miniz.h"
 
 // ToDo:
 // handle different files that are received. Currently only locoInfo is used
@@ -18,7 +19,7 @@ class MaerklinLocoManagment
 
         void setHash(uint16_t hash){m_hash = hash;}
 
-        void requestLocoInfo();
+        void requestConfigData(const char* command, std::vector<uint8_t>& buffer);
 
         // called by MaerklinCanInterface
         //bool handleNewData(uint8_t* data);
@@ -35,7 +36,7 @@ class MaerklinLocoManagment
 
         uint16_t calcCRC(uint16_t CRC_acc, uint8_t CRC_input);
 
-        std::vector<uint8_t> locoinfo;
+        std::vector<uint8_t>* m_buffer {nullptr};
 
         uint32_t m_uid {0};
 
@@ -56,4 +57,6 @@ class MaerklinLocoManagment
         uint32_t m_length {0};
 
         uint32_t m_lengthExpected {0};
+
+        bool m_isZLib {false};
 };

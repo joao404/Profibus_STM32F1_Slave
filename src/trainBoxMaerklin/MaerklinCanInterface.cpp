@@ -435,7 +435,29 @@ void MaerklinCanInterface::handleReceivedMessage(TrackMessage &message)
 				break;
 			}
 			break;
-
+		case MaerklinCanInterface::Cmd::configDataSteam:
+			if (8 == message.length)
+			{
+				std::array<uint8_t, 8> data{message.data[0], message.data[1], message.data[2], message.data[3], message.data[4], message.data[5], message.data[6], message.data[7]}; 
+				messageHandled = onConfigDataStream(message.hash, data);
+			}
+			else if(7 == message.length)
+			{
+				uint32_t length = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
+				uint16_t crc =  (message.data[4] << 8) + message.data[5];
+				messageHandled = onConfigDataStream(message.hash, length, crc, message.data[6]);
+			}
+			else if(6 == message.length)
+			{
+				uint32_t length = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
+				uint16_t crc =  (message.data[4] << 8) + message.data[5];
+				messageHandled = onConfigDataStream(message.hash, length, crc);
+			}
+			else
+			{
+				messageHandled = onConfigDataSteamError(message.hash);
+			}
+			break;
 		default:
 
 			break;
@@ -824,19 +846,15 @@ void MaerklinCanInterface::messageStatusDataConfig(TrackMessage &message, uint32
 	message.data[4] = index;
 }
 
-void MaerklinCanInterface::messageConfigData(TrackMessage &message, String request)
+void MaerklinCanInterface::messageConfigData(TrackMessage &message, std::array<uint8_t, 8>& request)
 {
 	message.clear();
-	message.prio = static_cast<uint8_t>(MessagePrio::noPrio);
+	message.prio = static_cast<uint8_t>(MessagePrio::max);//message needs max prio because MS does recognize it otherwise
 	message.command = static_cast<uint8_t>(MaerklinCanInterface::Cmd::requestConfigData);
 	message.length = 0x08;
-	if (8 > request.length())
+	for (size_t i = 0; i < 8; i++)
 	{
-		memcpy(message.data, request.c_str(), message.length);
-	}
-	else
-	{
-		memcpy(message.data, request.c_str(), request.length());
+		message.data[i] = request.at(i);
 	}
 }
 
@@ -1037,19 +1055,11 @@ bool MaerklinCanInterface::requestStatusDataConfig(uint32_t uid, uint8_t index)
 	return sendMessage(message);
 }
 
-bool MaerklinCanInterface::requestConfigData(String request)
+bool MaerklinCanInterface::requestConfigData(std::array<uint8_t, 8>& request)
 {
 	TrackMessage message;
-	int8_t length = static_cast<int8_t>(request.length());
-	bool success{true};
-
-	for (size_t i = 0; length > 0; i++)
-	{
-		messageConfigData(message, request.substring(i*8, length));
-		success |= sendMessage(message);
-		length -= 8;
-	}
-	return success;
+	messageConfigData(message, request);
+	return sendMessage(message);
 }
 
 // ===================================================================

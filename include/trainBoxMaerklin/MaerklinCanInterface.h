@@ -114,6 +114,7 @@ class MaerklinCanInterface {
 
         enum class MessagePrio : uint8_t
         {
+            max = 0, // should not be used
             system = 1, // Stopp / Go / Kurzschluss-Meldung
             feedback = 2, // Rueckmeldungen
             locoStop = 3, // Lok anhalten
@@ -324,7 +325,7 @@ class MaerklinCanInterface {
 
         void messageStatusDataConfig(TrackMessage &message, uint32_t uid, uint8_t index);
 
-        void messageConfigData(TrackMessage& message, String request);
+        void messageConfigData(TrackMessage& message, std::array<uint8_t, 8>& request);
 
 
         bool exchangeMessage(TrackMessage &out, TrackMessage &in,  word timeout);
@@ -390,5 +391,5 @@ class MaerklinCanInterface {
 
         bool requestStatusDataConfig(uint32_t uid, uint8_t index);
 
-        bool requestConfigData(String request);
+        bool requestConfigData(std::array<uint8_t, 8>& request);
 };
