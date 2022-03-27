@@ -43,16 +43,17 @@ CanInterface canInterface;
 
 z60 centralStation(canInterface, z21Interface::HwType::Z21_XL, 0xFFFFFFF0, 0x0140, 21105, 0, true);
 
-MaerklinLocoManagment locoManagment(0x0, centralStation);
+MaerklinLocoManagment locoManagment(0x0, centralStation, centralStation.getStationList());
 
 Can2Udp can2Udp(canInterface, false);
 
-std::vector<uint8_t> bufferLocoList;
+std::vector<uint8_t> vectorLocoList;
+std::vector<std::unique_ptr<MaerklinLocoManagment::LocoData>> vectorLocos;
 
 /**********************************************************************************/
 void setup()
 {
-  Serial.begin(230000); // UDP to Serial Kommunikation
+  Serial.begin(230000);
 
   webServer.on("/can", []()
                {
@@ -136,8 +137,9 @@ void setup()
     if (webServer.hasArg("readingLoco"))
     {
       Serial.println("trigger loco reading");
-      const char lokliste[] = "lokliste";
-      locoManagment.requestConfigData(lokliste, bufferLocoList);
+      locoManagment.getAllLocos(vectorLocoList, vectorLocos);
+      //const char lokliste[] = "lokliste";
+      //locoManagment.requestConfigData(lokliste, vectorLocoList);
     }
     webServer.send(200, "text/plain", "Success"); 
   });
@@ -158,8 +160,6 @@ void setup()
   can2Udp.begin();
 
   Serial.println("OK"); // start - reset serial receive Buffer
-
-  // this buffer will be copied to file system and be available via webserver
 }
 
 /**********************************************************************************/

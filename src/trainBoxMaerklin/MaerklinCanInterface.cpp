@@ -364,7 +364,7 @@ void MaerklinCanInterface::handleReceivedMessage(TrackMessage &message)
 				uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
 				uint16_t swVersion = (static_cast<uint16_t>(message.data[4]) << 8) + message.data[5];
 				uint16_t hwIdent = (static_cast<uint16_t>(message.data[6]) << 8) + message.data[7];
-				messageHandled = onPing(id, swVersion, hwIdent);
+				messageHandled = onPing(message.hash, id, swVersion, hwIdent);
 			}
 			break;
 		case MaerklinCanInterface::Cmd::statusDataConfig:
@@ -383,7 +383,7 @@ void MaerklinCanInterface::handleReceivedMessage(TrackMessage &message)
 			if (8 == message.length)
 			{
 				std::array<uint8_t, 8> data{message.data[0], message.data[1], message.data[2], message.data[3], message.data[4], message.data[5], message.data[6], message.data[7]}; 
-				messageHandled = onConfigData(data);
+				messageHandled = onConfigData(message.hash, data);
 			}
 			break;
 
@@ -849,7 +849,7 @@ void MaerklinCanInterface::messageStatusDataConfig(TrackMessage &message, uint32
 void MaerklinCanInterface::messageConfigData(TrackMessage &message, std::array<uint8_t, 8>& request)
 {
 	message.clear();
-	message.prio = static_cast<uint8_t>(MessagePrio::max);//message needs max prio because MS does recognize it otherwise
+	message.prio = static_cast<uint8_t>(MessagePrio::maxPrio);//message needs max prio because MS does recognize it otherwise
 	message.command = static_cast<uint8_t>(MaerklinCanInterface::Cmd::requestConfigData);
 	message.length = 0x08;
 	for (size_t i = 0; i < 8; i++)

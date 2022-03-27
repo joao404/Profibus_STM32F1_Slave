@@ -114,7 +114,7 @@ class MaerklinCanInterface {
 
         enum class MessagePrio : uint8_t
         {
-            max = 0, // should not be used
+            maxPrio = 0, // should not be used
             system = 1, // Stopp / Go / Kurzschluss-Meldung
             feedback = 2, // Rueckmeldungen
             locoStop = 3, // Lok anhalten
@@ -254,13 +254,13 @@ class MaerklinCanInterface {
 
         virtual bool onAccSwitch(uint32_t id, uint8_t position, uint8_t current){return false;}
 
-        virtual bool onPing(uint32_t id, uint16_t swVersion, uint16_t hwIdent){return false;}
+        virtual bool onPing(uint16_t hash, uint32_t id, uint16_t swVersion, uint16_t hwIdent){return false;}
 
         virtual bool onStatusDataConfig(uint16_t hash, std::array<uint8_t, 8>& data){return false;}
 
         virtual bool onStatusDataConfig(uint16_t hash, uint32_t uid, uint8_t index, uint8_t length){return false;}
 
-        virtual bool onConfigData(std::array<uint8_t, 8> data){return false;}
+        virtual bool onConfigData(uint16_t hash, std::array<uint8_t, 8> data){return false;}
 
         virtual bool onConfigDataStream(uint16_t hash, uint32_t streamlength, uint16_t crc){return false;}
 

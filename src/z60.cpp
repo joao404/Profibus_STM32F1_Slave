@@ -80,7 +80,7 @@ void z60::begin()
   {
     sendPing();
     delay(500);
-    if (m_hashTrainbox.size() != 0)
+    if (m_trainboxIdList.size() != 0)
     {
       break;
     }
@@ -89,9 +89,9 @@ void z60::begin()
   z21InterfaceEsp32::setPower(EnergyState::csTrackVoltageOff);
   MaerklinCanInterfaceEsp32::sendSystemStop();
 
-  if (m_hashTrainbox.size() > 0)
+  if (m_trainboxIdList.size() > 0)
   {
-    sendSystemStatus(static_cast<uint8_t>(valueChannel::current), m_hashTrainbox.at(0)); // current
+    sendSystemStatus(static_cast<uint8_t>(valueChannel::current), m_trainboxIdList.at(0)); // current
   }
   // sendSystemStatus(static_cast<uint8_t>(valueChannel::voltage), m_trainBoxUid); // voltage
   // sendSystemStatus(static_cast<uint8_t>(valueChannel::temp), m_trainBoxUid);    // temp
@@ -642,17 +642,17 @@ bool z60::onAccSwitch(uint32_t id, uint8_t position, uint8_t current)
   return true;
 }
 
-bool z60::onPing(uint32_t id, uint16_t swVersion, uint16_t hwIdent)
+bool z60::onPing(uint16_t hash, uint32_t id, uint16_t swVersion, uint16_t hwIdent)
 {
   Serial.println("Ping received");
 
   if (0x0010 == (hwIdent & 0xFFF0))
   {
     // Trainbox
-    auto finding = std::find(m_hashTrainbox.begin(), m_hashTrainbox.end(), id);
-    if (finding == m_hashTrainbox.end())
+    auto finding = std::find(m_trainboxIdList.begin(), m_trainboxIdList.end(), id);
+    if (finding == m_trainboxIdList.end())
     {
-      m_hashTrainbox.emplace_back(id);
+      m_trainboxIdList.emplace_back(id);
       Serial.print("Adding Trainbox: Uid:");
       Serial.print(id, HEX);
       Serial.print(" HW:");
@@ -664,21 +664,18 @@ bool z60::onPing(uint32_t id, uint16_t swVersion, uint16_t hwIdent)
   else if (0x0030 == (hwIdent & 0xFFF0))
   {
     // Mobile Station
-    auto finding = std::find(m_hashMobileStation.begin(), m_hashMobileStation.end(), id);
-    if (finding == m_hashMobileStation.end())
+    auto finding = std::find_if(m_stationList.begin(), m_stationList.end(), [&id](MaerklinStationConfig cfg){return cfg.id == id;});
+    if (finding == m_stationList.end())
     {
-      m_hashMobileStation.emplace_back(id);
-      Serial.print("Adding MobileStation: Uid:");
+      m_stationList.emplace_back(MaerklinStationConfig{hash, id, swVersion, hwIdent});
+      Serial.print("Adding MobileStation: Hash:");
+      Serial.print(hash, HEX);
+      Serial.print(" Uid:");
       Serial.print(id, HEX);
       Serial.print(" HW:");
       Serial.print(hwIdent, HEX);
       Serial.print(" SW:");
       Serial.println(swVersion, HEX);
-
-      // if(0 == numberOfLocos)
-      // {
-      //   // read out all locos
-      // }
     }
   }
   return true;
@@ -692,6 +689,15 @@ bool z60::onStatusDataConfig(uint16_t hash, std::array<uint8_t, 8>& data)
 bool z60::onStatusDataConfig(uint16_t hash, uint32_t uid, uint8_t index, uint8_t length)
 {
   return true;
+}
+
+bool z60::onConfigData(uint16_t hash, std::array<uint8_t, 8> data) 
+{
+  if(nullptr != m_locomanagment)
+  {
+    return m_locomanagment->onConfigDataStream(hash, data);
+  }
+  return false;
 }
 
 bool z60::onConfigDataStream(uint16_t hash, uint32_t streamlength, uint16_t crc)
@@ -1225,9 +1231,9 @@ void z60::notifyz21InterfacegetSystemInfo(uint8_t client)
   // uint16_t temp = 1600;
   // uint16_t volt = 0x4650; // 18V
 
-  if (m_hashTrainbox.size() > 0)
+  if (m_trainboxIdList.size() > 0)
   {
-    sendSystemStatus(static_cast<uint8_t>(valueChannel::current), m_hashTrainbox.at(0)); // current
+    sendSystemStatus(static_cast<uint8_t>(valueChannel::current), m_trainboxIdList.at(0)); // current
   }
   else
   {
