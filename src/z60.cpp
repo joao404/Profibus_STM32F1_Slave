@@ -56,7 +56,7 @@ void z60::begin()
     readSize /= sizeof(ConfigLoco);
     for (size_t i = 0; i < readSize; i++)
     {
-      m_locos.emplace_back(DataLoco{buffer[i].adr, buffer[i].mode, false, 0, {buffer[i].steps, 0, 0, 0, 0, 0}});
+      m_locos.emplace_back(DataLoco{buffer[i].adr, buffer[i].mode, false, 0, true, {buffer[i].steps, 0, 0, 0, 0, 0}});
     }
 
     // if (preferences.getBytes(keyTurnOutMode, turnOutMode, sizeof(turnOutMode)) != sizeof(turnOutMode))
@@ -433,6 +433,7 @@ bool z60::onLocoSpeed(uint32_t id, uint16_t speed)
   {
     if (finding->adr == adr)
     {
+      finding->speedResponseReceived = true;
       uint8_t divider = 71; // 14 steps
       uint8_t stepConfig = (finding->data[0] & 0x03);
       if (stepConfig == static_cast<uint8_t>(StepConfig::Step128))
@@ -695,7 +696,7 @@ bool z60::onConfigData(uint16_t hash, std::array<uint8_t, 8> data)
 {
   if(nullptr != m_locomanagment)
   {
-    return m_locomanagment->onConfigDataStream(hash, data);
+    return m_locomanagment->onConfigData(hash, data);
   }
   return false;
 }
@@ -801,7 +802,7 @@ void z60::handleSetLocoMode(uint16_t adr, uint8_t mode)
   {
     m_locos.pop_back();
   }
-  m_locos.push_front(DataLoco{adr, mode, false, 0, {static_cast<uint8_t>(StepConfig::Step128), 0, 0, 0, 0, 0}});
+  m_locos.push_front(DataLoco{adr, mode, false, 0, true, {static_cast<uint8_t>(StepConfig::Step128), 0, 0, 0, 0, 0}});
   saveLocoConfig();
 }
 
@@ -877,7 +878,7 @@ void z60::notifyz21InterfaceLocoState(uint16_t Adr, uint8_t data[])
   {
     m_locos.pop_back();
   }
-  m_locos.push_front(DataLoco{Adr, 0, false, 0, {static_cast<uint8_t>(StepConfig::Step128), 0, 0, 0, 0, 0}});
+  m_locos.push_front(DataLoco{Adr, 0, false, 0, true, {static_cast<uint8_t>(StepConfig::Step128), 0, 0, 0, 0, 0}});
   saveLocoConfig();
   data[0] = static_cast<uint8_t>(StepConfig::Step128);
   memset(&data[1], 0, 5);
@@ -901,7 +902,7 @@ void z60::notifyz21InterfaceLocoFkt(uint16_t Adr, uint8_t type, uint8_t fkt)
   }
   Serial.print("Loco not found:");
   Serial.println(Adr);
-  m_locos.push_front(DataLoco{Adr, 0, false, 0, {static_cast<uint8_t>(StepConfig::Step128), 0, 0, 0, 0, 0}});
+  m_locos.push_front(DataLoco{Adr, 0, false, 0, true, {static_cast<uint8_t>(StepConfig::Step128), 0, 0, 0, 0, 0}});
   saveLocoConfig();
 }
 
@@ -971,7 +972,8 @@ void z60::notifyz21InterfaceLocoSpeed(uint16_t Adr, uint8_t speed, uint8_t stepC
       else
       {
         unsigned long currentTimeINms = millis();
-        if ((finding->lastSpeedCmdTimeINms + minimumCmdIntervalINms) < currentTimeINms)
+        // we are sending speed in case that we already received an answer for the last command or the time is up
+        if (((finding->lastSpeedCmdTimeINms + minimumCmdIntervalINms) < currentTimeINms) || (finding->speedResponseReceived))
         {
           finding->lastSpeedCmdTimeINms = currentTimeINms;
           uint8_t steps = 1;
@@ -995,6 +997,7 @@ void z60::notifyz21InterfaceLocoSpeed(uint16_t Adr, uint8_t speed, uint8_t stepC
 
           setLocoDir(id, speed & 0x80 ? 1 : 2);
           setLocoSpeed(id, locoSpeedTrainBox);
+          finding->speedResponseReceived = false;
         }
       }
       return;
@@ -1006,7 +1009,7 @@ void z60::notifyz21InterfaceLocoSpeed(uint16_t Adr, uint8_t speed, uint8_t stepC
   {
     m_locos.pop_back();
   }
-  m_locos.push_front(DataLoco{Adr, 0, false, 0, {stepConfig, 0, 0, 0, 0, 0}});
+  m_locos.push_front(DataLoco{Adr, 0, false, 0, true, {stepConfig, 0, 0, 0, 0, 0}});
   saveLocoConfig();
 }
 

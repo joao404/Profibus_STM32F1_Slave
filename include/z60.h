@@ -34,6 +34,7 @@ public:
         uint8_t mode;
         bool isActive;
         unsigned long lastSpeedCmdTimeINms;
+        bool speedResponseReceived;
         std::array<uint8_t, 6> data;
     };
 
