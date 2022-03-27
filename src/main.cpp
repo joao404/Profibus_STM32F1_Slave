@@ -43,7 +43,7 @@ CanInterface canInterface;
 
 z60 centralStation(canInterface, z21Interface::HwType::Z21_XL, 0xFFFFFFF0, 0x0140, 21105, 0, true);
 
-MaerklinLocoManagment locoManagment(0x0, centralStation, centralStation.getStationList());
+MaerklinLocoManagment locoManagment(0x0, centralStation, centralStation.getStationList(), 5000, 3);
 
 Can2Udp can2Udp(canInterface, false);
 
@@ -137,7 +137,7 @@ void setup()
     if (webServer.hasArg("readingLoco"))
     {
       Serial.println("trigger loco reading");
-      locoManagment.getAllLocos(vectorLocoList, vectorLocos);
+      locoManagment.getAllLocos(vectorLocoList, vectorLocos,[](bool success){Serial.println(success?"success":"failed");});
       //const char lokliste[] = "lokliste";
       //locoManagment.requestConfigData(lokliste, vectorLocoList);
     }
@@ -168,5 +168,6 @@ void loop()
   autoConnect.handleClient();
   canInterface.cyclic();
   centralStation.cyclic();
+  locoManagment.cyclic();
   delayMicroseconds(1);
 }

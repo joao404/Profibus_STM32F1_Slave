@@ -17,7 +17,7 @@
 #pragma once
 
 #include "trainBoxMaerklin/MaerklinCanInterfaceEsp32.h"
-#include "trainBoxMaerklin/MaerklinLocoManagment.h"
+#include "trainBoxMaerklin/MaerklinConfigDataStream.h"
 #include "trainBoxMaerklin/MaerklinStationConfig.h"
 #include "z21/z21InterfaceEsp32.h"
 #include <unordered_map>
@@ -55,7 +55,7 @@ public:
 
     bool isProgrammingActiv() { return m_programmingActiv; }
 
-    void setLocoManagment(MaerklinLocoManagment *locomanagment);
+    void setLocoManagment(MaerklinConfigDataStream *configDataStream);
 
     std::vector<MaerklinStationConfig>& getStationList() { return m_stationList;}
 
@@ -102,7 +102,7 @@ private:
 
     std::vector<MaerklinStationConfig> m_stationList;
 
-    MaerklinLocoManagment *m_locomanagment;
+    MaerklinConfigDataStream *m_configDataStream;
 
     uint16_t m_currentINmA{0};
     uint16_t m_voltageINmV{0};

@@ -65,9 +65,9 @@ void z60::begin()
     // }
     m_preferences.end();
 
-    if(nullptr != m_locomanagment)
+    if(nullptr != m_configDataStream)
     {
-      m_locomanagment->setHash(m_hash);
+      m_configDataStream->setHash(m_hash);
     }
   }
 
@@ -259,9 +259,9 @@ uint16_t z60::getSerialNumber()
   return m_serialNumber;
 }
 
-void z60::setLocoManagment(MaerklinLocoManagment*  locomanagment)
+void z60::setLocoManagment(MaerklinConfigDataStream*  configDataStream)
 {
-  m_locomanagment = locomanagment;
+  m_configDataStream = configDataStream;
 }
 
 // onCallback
@@ -694,45 +694,45 @@ bool z60::onStatusDataConfig(uint16_t hash, uint32_t uid, uint8_t index, uint8_t
 
 bool z60::onConfigData(uint16_t hash, std::array<uint8_t, 8> data) 
 {
-  if(nullptr != m_locomanagment)
+  if(nullptr != m_configDataStream)
   {
-    return m_locomanagment->onConfigData(hash, data);
+    return m_configDataStream->onConfigData(hash, data);
   }
   return false;
 }
 
 bool z60::onConfigDataStream(uint16_t hash, uint32_t streamlength, uint16_t crc)
 {
-  if(nullptr != m_locomanagment)
+  if(nullptr != m_configDataStream)
   {
-    return m_locomanagment->onConfigDataStream(hash, streamlength, crc);
+    return m_configDataStream->onConfigDataStream(hash, streamlength, crc);
   }
   return false;
 }
 
 bool z60::onConfigDataStream(uint16_t hash, uint32_t streamlength, uint16_t crc, uint8_t res)
 {
-  if(nullptr != m_locomanagment)
+  if(nullptr != m_configDataStream)
   {
-    return m_locomanagment->onConfigDataStream(hash, streamlength, crc, res);
+    return m_configDataStream->onConfigDataStream(hash, streamlength, crc, res);
   }
   return false;
 }
 
 bool z60::onConfigDataStream(uint16_t hash, std::array<uint8_t, 8>& data)
 {
-  if(nullptr != m_locomanagment)
+  if(nullptr != m_configDataStream)
   {
-    return m_locomanagment->onConfigDataStream(hash, data);
+    return m_configDataStream->onConfigDataStream(hash, data);
   }
   return false;
 }
 
 bool z60::onConfigDataSteamError(uint16_t hash)
 {
-  if(nullptr != m_locomanagment)
+  if(nullptr != m_configDataStream)
   {
-    return m_locomanagment->onConfigDataSteamError(hash);
+    return m_configDataStream->onConfigDataSteamError(hash);
   }
   return false;
 }
