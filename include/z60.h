@@ -46,7 +46,7 @@ public:
     };
 
 public:
-    z60(CanInterface &canInterface, HwType hwType, uint32_t serialNumber, uint32_t swVersion, int16_t port, uint16_t hash, bool debug);
+    z60(CanInterface &canInterface, uint16_t hash, uint32_t serialNumber, HwType hwType, uint32_t swVersion, int16_t port, bool debug);
     virtual ~z60();
     void begin();
     void cyclic();
@@ -107,6 +107,8 @@ private:
     uint16_t m_currentINmA{0};
     uint16_t m_voltageINmV{0};
     uint16_t m_tempIN10_2deg{0};
+
+    bool m_debug;
 
     void saveLocoConfig();
 

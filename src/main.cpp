@@ -41,14 +41,18 @@ ACSubmit(saveButton, "Save", "/z60configured");
 
 CanInterface canInterface;
 
-z60 centralStation(canInterface, z21Interface::HwType::Z21_XL, 0xFFFFFFF0, 0x0140, 21105, 0, true);
-
-MaerklinLocoManagment locoManagment(0x0, centralStation, centralStation.getStationList(), 5000, 3);
+const uint16_t hash{0};
+const uint32_t serialNumber {0xFFFFFFF0};
+const uint16_t swVersion {0x0140};
+const int16_t z21Port{21105};
+z60 centralStation(canInterface, hash, serialNumber, z21Interface::HwType::Z21_XL, swVersion, z21Port, false);
 
 Can2Udp can2Udp(canInterface, false);
 
-std::vector<uint8_t> vectorLocoList;
-std::vector<std::unique_ptr<MaerklinLocoManagment::LocoData>> vectorLocos;
+MaerklinLocoManagment locoManagment(0x0, centralStation, centralStation.getStationList(), 3000, 3);
+
+std::string locoList;
+std::vector<std::unique_ptr<MaerklinLocoManagment::LocoData>> locoInfo;
 
 /**********************************************************************************/
 void setup()
@@ -137,7 +141,7 @@ void setup()
     if (webServer.hasArg("readingLoco"))
     {
       Serial.println("trigger loco reading");
-      locoManagment.getAllLocos(vectorLocoList, vectorLocos,[](bool success){Serial.println(success?"success":"failed");});
+      locoManagment.getAllLocos(locoList, locoInfo,[](bool success){Serial.println(success?"success":"failed");});
       //const char lokliste[] = "lokliste";
       //locoManagment.requestConfigData(lokliste, vectorLocoList);
     }

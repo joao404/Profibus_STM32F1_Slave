@@ -6,6 +6,7 @@
 #include <array>
 #include <memory>
 #include <vector>
+#include <string>
 
 class MaerklinConfigDataStream
 {
@@ -24,7 +25,7 @@ public:
     MaerklinConfigDataStream(MaerklinCanInterface &interface, std::vector<MaerklinStationConfig> &stationList);
     virtual ~MaerklinConfigDataStream();
 
-    bool requestConfigData(DataType type, const char* info, std::vector<uint8_t>* buffer);
+    bool requestConfigData(DataType type, std::string *info, std::string* buffer);
 
     bool onConfigData(uint16_t hash, std::array<uint8_t, 8> data);
 
@@ -53,7 +54,7 @@ protected:
 
     uint32_t m_lengthExpected{0};
 
-    virtual void m_reportResultFunc(std::vector<uint8_t>* data, uint16_t hash, bool success) = 0;
+    virtual void m_reportResultFunc(std::string* data, uint16_t hash, bool success) = 0;
 
 private:
     uint16_t updateCRC(uint16_t CRC_acc, uint8_t CRC_input);
@@ -62,10 +63,10 @@ private:
 
     std::vector<MaerklinStationConfig> &m_stationList;
 
-    std::vector<uint8_t> *m_buffer{nullptr};
+    std::string *m_buffer{nullptr};
 
     // backup buffer to save packages which are received outside of running transmission
-    std::vector<uint8_t> m_backupBuffer;
+    std::string m_backupBuffer;
 
     // void (*m_reportResultFunc)(std::vector<uint8_t>* data, uint16_t hash, bool success){nullptr};
 

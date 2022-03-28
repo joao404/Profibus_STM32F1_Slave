@@ -9,7 +9,7 @@ MaerklinConfigDataStream::~MaerklinConfigDataStream()
 {
 }
 
-bool MaerklinConfigDataStream::requestConfigData(DataType type, const char *info, std::vector<uint8_t> *buffer)
+bool MaerklinConfigDataStream::requestConfigData(DataType type, std::string *info, std::string *buffer)
 {
     if (nullptr == buffer)
     {
@@ -29,16 +29,18 @@ bool MaerklinConfigDataStream::requestConfigData(DataType type, const char *info
     {
         std::array<uint8_t, 8> request = {'l', 'o', 'k', 'i', 'n', 'f', 'o', 0};
         m_interface.requestConfigData(request);
+        Serial.println(info->c_str());
         uint8_t numberOfRequests{0};
+        size_t infoIndex {0};
         do
         {
             delayMicroseconds(50);
             for (uint8_t i = 0; i < request.size(); i++)
             {
-                if ('\0' != *info)
+                if (info->size() > infoIndex)
                 {
-                    request[i] = *info;
-                    info++;
+                    request[i] = (*info)[infoIndex];
+                    infoIndex++;
                 }
                 else // the rest should be zero
                 {
@@ -55,12 +57,13 @@ bool MaerklinConfigDataStream::requestConfigData(DataType type, const char *info
         std::array<uint8_t, 8> request = {'l', 'o', 'k', 'n', 'a', 'm', 'e', 'n'};
         m_interface.requestConfigData(request);
         delayMicroseconds(50);
+        size_t infoIndex {0};
         for (uint8_t i = 0; i < request.size(); i++)
         {
-            if ('\0' != *info)
+            if (info->size() > infoIndex)
             {
-                request[i] = *info;
-                info++;
+                request[i] = (*info)[infoIndex];
+                infoIndex++;
             }
             else // the rest should be zero
             {
@@ -75,12 +78,13 @@ bool MaerklinConfigDataStream::requestConfigData(DataType type, const char *info
         std::array<uint8_t, 8> request = {'m', 'a', 'g', 'i', 'n', 'f', 'o', 0};
         m_interface.requestConfigData(request);
         delayMicroseconds(50);
-        for (uint8_t i = 0; i < request.size(); i++)
+        size_t infoIndex {0};
+        for (size_t i = 0; i < request.size(); i++)
         {
-            if ('\0' != *info)
+            if (info->size() > infoIndex)
             {
-                request[i] = *info;
-                info++;
+                request[i] = (*info)[infoIndex];
+                infoIndex++;
             }
             else // the rest should be zero
             {
@@ -113,7 +117,7 @@ bool MaerklinConfigDataStream::onConfigData(uint16_t hash, std::array<uint8_t, 8
 
 bool MaerklinConfigDataStream::onConfigDataStream(uint16_t hash, uint32_t streamlength, uint16_t crc)
 {
-    Serial.println("onConfigDataStream6");
+    // Serial.println("onConfigDataStream6");
     // receiver hash is expected
     m_hashExpected = hash;
     m_lengthExpected = streamlength;
@@ -126,7 +130,7 @@ bool MaerklinConfigDataStream::onConfigDataStream(uint16_t hash, uint32_t stream
 
 bool MaerklinConfigDataStream::onConfigDataStream(uint16_t hash, uint32_t streamlength, uint16_t crc, uint8_t res)
 {
-    Serial.println("onConfigDataStream7");
+    // Serial.println("onConfigDataStream7");
     // sender hash is expected
     m_hashExpected = hash; // is already set in onConfigData
     m_lengthExpected = streamlength;

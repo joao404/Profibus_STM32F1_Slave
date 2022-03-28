@@ -1,6 +1,8 @@
 #pragma once
 
 #include <Arduino.h>
+#include <string>
+#include <memory>
 #include "trainBoxMaerklin/MaerklinConfigDataStream.h"
 #include "miniz.h"
 
@@ -9,76 +11,83 @@
 
 class MaerklinLocoManagment : public MaerklinConfigDataStream
 {
-    public:
-        struct LocoData
-        {
-            std::array<uint8_t, 16> name;
-            std::vector<uint8_t> config;
-        };
+public:
+    struct LocoData
+    {
+        std::string name;
+        std::string config;
+    };
 
-        enum class LocoManagmentState : uint8_t
-        {
-            Idle,
-            WaitingForLocoList,
-            WaitingForLocoNamen,
-            WaitingForLocoInfo
-        };
+    enum class LocoManagmentState : uint8_t
+    {
+        Idle,
+        WaitingForLocoList,
+        WaitingForLocoNamen,
+        WaitingForLocoInfo
+    };
 
-    public:
-        // can interface is needed to request data over interface
-        MaerklinLocoManagment(uint32_t uid, MaerklinCanInterface& interface, std::vector<MaerklinStationConfig>& stationList, unsigned long messageTimeout, uint8_t maxCmdRepeat);
-        virtual ~MaerklinLocoManagment();
+public:
+    // can interface is needed to request data over interface
+    MaerklinLocoManagment(uint32_t uid, MaerklinCanInterface &interface, std::vector<MaerklinStationConfig> &stationList,
+                          unsigned long messageTimeout, uint8_t maxCmdRepeat, bool debug = false);
+    virtual ~MaerklinLocoManagment();
 
-        void cyclic();
+    void cyclic();
 
-        uint32_t getUid();
+    uint32_t getUid();
 
-        void getAllLocos(std::vector<uint8_t>& locoList, std::vector<std::unique_ptr<LocoData>> &locos, void (*callback)(bool success));
+    void getAllLocos(std::string &locoList, std::vector<std::unique_ptr<LocoData>> &locos, void (*callback)(bool success));
 
-        
+protected:
+    // function is called by class ConfigDataStream in case that values where successful received with or without intention
+    // or a planed transmission failed
 
-    protected:        
+    void m_reportResultFunc(std::string *data, uint16_t hash, bool success) override
+    {
+        handleConfigDataStreamFeedback(data, hash, success);
+    }
 
-        // function is called by class ConfigDataStream in case that values where successful received with or without intention
-        // or a planed transmission failed
+    bool startConfigDataRequest(DataType type, std::string *info, std::string *buffer);
 
-        void m_reportResultFunc(std::vector<uint8_t>* data, uint16_t hash, bool success)override 
-        {handleConfigDataStreamFeedback(data, hash, success);}
-        
-        void handleConfigDataStreamFeedback(std::vector<uint8_t>* data, uint16_t hash, bool success);
+    bool startConfigDataRequest(DataType type, std::string *info, std::string *buffer, uint8_t cmdRepeat);
 
-        void newLocoList(std::vector<uint8_t>& locoList);
+    void handleConfigDataStreamFeedback(std::string *data, uint16_t hash, bool success);
 
-        // ich muss den aktuellen Buffer jeweils umschalten => hierzu wird Minimum eine Statemaschine benötigt, welche kontrolliert,
-        // was als nächstes gedownloaded wird
-        // sobald die locolist gedownloaded ist, werden alle lokomotivnamen extahiert und gespeichert.
-        // Anschließend wird jeweils mit push_back ein speicher angelegt, welcher dann request ConfigData übergeben wird
-        
-        std::vector<std::unique_ptr<LocoData>>* m_locos {nullptr};
+    // void newLocoList(std::string& locoList);
 
-        uint32_t m_uid {0};
+private:
+    // ich muss den aktuellen Buffer jeweils umschalten => hierzu wird Minimum eine Statemaschine benötigt, welche kontrolliert,
+    // was als nächstes gedownloaded wird
+    // sobald die locolist gedownloaded ist, werden alle lokomotivnamen extahiert und gespeichert.
+    // Anschließend wird jeweils mit push_back ein speicher angelegt, welcher dann request ConfigData übergeben wird
 
-        LocoManagmentState m_state{LocoManagmentState::WaitingForLocoList};
+    std::vector<std::unique_ptr<LocoData>> *m_locos{nullptr};
 
-        unsigned long m_lastCmdTimeINms {0};
+    uint32_t m_uid{0};
 
-        unsigned long m_cmdTimeoutINms{0};
+    LocoManagmentState m_state{LocoManagmentState::WaitingForLocoList};
 
-        uint8_t m_maxCmdRepeat{1};
+    unsigned long m_lastCmdTimeINms{0};
 
-        uint8_t m_cmdRepeat{0};
+    unsigned long m_cmdTimeoutINms{0};
 
-        DataType m_lastType{DataType::Lokliste};
+    uint8_t m_maxCmdRepeat{1};
 
-        char m_lastInfo[16];
+    uint8_t m_cmdRepeat{0};
 
-        std::vector<uint8_t>* m_lastBuffer{nullptr};
+    DataType m_currentType{DataType::Lokliste};
 
-        bool m_isZLib {false};
+    std::string m_currentInfo;
 
-        uint8_t m_numberOfLoco{0};
+    std::string *m_currentBuffer{nullptr};
 
-        uint8_t m_transmissionStarted{false};
+    bool m_isZLib{false};
 
-        void (*m_callbackFunc)(bool success){nullptr};
+    uint8_t m_currentLocoNum{0};
+
+    uint8_t m_transmissionStarted{false};
+
+    void (*m_callbackFunc)(bool success){nullptr};
+
+    bool m_debug;
 };
