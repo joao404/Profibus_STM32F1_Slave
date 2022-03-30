@@ -28,7 +28,9 @@
 #include "z60.h"
 #include "Can2Udp.h"
 
-#define defaultPassword "12345678" // Default Z60 network password
+#include <SPIFFS.h>
+
+#define defaultPassword "" // 12345678" // Default Z60 network password
 
 WebServer webServer;
 AutoConnect autoConnect(webServer);
@@ -42,17 +44,14 @@ ACSubmit(saveButton, "Save", "/z60configured");
 CanInterface canInterface;
 
 const uint16_t hash{0};
-const uint32_t serialNumber {0xFFFFFFF0};
-const uint16_t swVersion {0x0140};
+const uint32_t serialNumber{0xFFFFFFF0};
+const uint16_t swVersion{0x0140};
 const int16_t z21Port{21105};
 z60 centralStation(canInterface, hash, serialNumber, z21Interface::HwType::Z21_XL, swVersion, z21Port, false);
 
 Can2Udp can2Udp(canInterface, false);
 
 MaerklinLocoManagment locoManagment(0x0, centralStation, centralStation.getStationList(), 3000, 3);
-
-std::string locoList;
-std::vector<std::unique_ptr<MaerklinLocoManagment::LocoData>> locoInfo;
 
 /**********************************************************************************/
 void setup()
@@ -62,28 +61,33 @@ void setup()
   webServer.on("/can", []()
                {
       Serial.println("Can requested");
-    webServer.send(200, "text/plain", "Can is here"); });
+    webServer.send(200, "", ""); });
 
   webServer.on("/config/prefs.cs2", []()
                {
       Serial.println("prefs requested");
-    webServer.send(200, "text/plain", "[Preferences]\nversion\n .minor=2\npage\n .entry\n ..key=Vergabe\n ..value=auto (DHCP)\n"
-    " .entry\n ..key=Mac-Adresse\n ..value=00:80:82:8A:99:46\n .entry ..key=IpAdresse ..value=192.168.4.1\n .entry\n"
-    " ..key=NetzMaske\n ..value=255.255.255.0\n .entry\n ..key=IpGateway\n ..value=...\n .entry\n ..key=IpDNS\n"
-    " ..value=192.168.4.1\npage\n .entry\n ..key=CANGateway\n ..value=auto\n ..id=1\n .entry\n ..key=GwZielAddr\n"
-    " ..value=192.168.4.255\npage\n .entry\n ..key=Version"); });
+    webServer.send(200, "text/plain", 
+    F(
+      "[Preferences]\nversion\n .major=0\n .minor=1\npage\n .entry\n ..key=Version\n ..value=\n"
+      "page\n .entry\n ..key=SerNum\n ..value=84\n .entry\n ..key=GfpUid\n ..value=1129525928\n .entry\n ..key=GuiUid\n"
+      " ..value=1129525929\n .entry\n ..key=HardVers\n ..value=3.1\n"
+    )); });
+
   webServer.on("/config/lokomotive.cs2", []()
                {
       Serial.println("lokomotive requested");
-    webServer.send(200, "text/plain", "[lokomotive]\n version\n .major=0\n .minor=1\n session\n .id=1\n"
+    webServer.send(200, "text/plain", 
+    F(
+    "[lokomotive]\n version\n .major=0\n .minor=1\n session\n .id=1\n"
     " lokomotive\n .uid=0x48\n .name=DHG300\n .adresse=0x48\n .typ=mm2_prg\n .sid=0x1\n .mfxuid=0x0\n"
     " .icon=DHG300\n .symbol=7\n .av=6\n .bv=3\n .volume=25\n .velocity=0\n .richtung=0\n .tachomax=320\n"
     " .vmax=60\n .vmin=3\n .xprotokoll=0\n .mfxtyp=0\n .stand=0x0\n .fahrt=0x0\n .funktionen\n ..nr=0\n"
     " ..typ=1\n ..dauer=0\n ..wert=0\n ..vorwaerts=0x0\n ..rueckwaerts=0x0\n .funktionen\n ..nr=1\n"
-    " ..typ=51\n ..dauer=0\n ..wert=0\n ..vorwaerts=0x0\n ..rueckwaerts=0x0\n .inTraktion=0xffffffff\n"); });
+    " ..typ=51\n ..dauer=0\n ..wert=0\n ..vorwaerts=0x0\n ..rueckwaerts=0x0\n .inTraktion=0xffffffff\n"
+    )); });
 
   configAutoConnect.ota = AC_OTA_BUILTIN;
-  configAutoConnect.apid = "z60AP";
+  configAutoConnect.apid = "z60AP-" + String((uint32_t)(ESP.getEfuseMac() >> 32), HEX);
   configAutoConnect.psk = defaultPassword;
   configAutoConnect.apip = IPAddress(192, 168, 4, 1); // Sets SoftAP IP address
   configAutoConnect.netmask = IPAddress(255, 255, 255, 0);
@@ -106,7 +110,7 @@ void setup()
   autoConnect.config(configAutoConnect);
 
   autoConnect.onNotFound([]()
-  {
+                         {
     String message = "File Not Found\n";
     message += "URI: ";
     message += webServer.uri();
@@ -119,15 +123,14 @@ void setup()
      message += " " + webServer.argName(i) + ": " + webServer.arg(i) + "\n";
     }
     Serial.print(message);
-    webServer.send(404, "text/plain", message); 
-  });
+    webServer.send(404, "text/plain", message); });
 
   auxZ60Config.add({progActive, readingLoco, saveButton});
 
   autoConnect.join(auxZ60Config);
 
   webServer.on("/z60configured", []()
-  {
+               {
     if (webServer.hasArg("progActive"))
     {
       Serial.println("setProgramming(true)");
@@ -141,12 +144,12 @@ void setup()
     if (webServer.hasArg("readingLoco"))
     {
       Serial.println("trigger loco reading");
-      locoManagment.getAllLocos(locoList, locoInfo,[](bool success){Serial.println(success?"success":"failed");});
+      locoManagment.getLokomotiveConfig([](std::string* data){Serial.println("WriteToFile");if(nullptr != data)Serial.println(data->c_str());},
+      [](bool success){Serial.println(success?"success":"failed");});
       //const char lokliste[] = "lokliste";
       //locoManagment.requestConfigData(lokliste, vectorLocoList);
     }
-    webServer.send(200, "text/plain", "Success"); 
-  });
+    webServer.send(200, "text/plain", "Success"); });
 
   autoConnect.begin();
 

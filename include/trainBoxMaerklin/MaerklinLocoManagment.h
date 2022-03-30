@@ -12,12 +12,6 @@
 class MaerklinLocoManagment : public MaerklinConfigDataStream
 {
 public:
-    struct LocoData
-    {
-        std::string name;
-        std::string config;
-    };
-
     enum class LocoManagmentState : uint8_t
     {
         Idle,
@@ -36,7 +30,7 @@ public:
 
     uint32_t getUid();
 
-    void getAllLocos(std::string &locoList, std::vector<std::unique_ptr<LocoData>> &locos, void (*callback)(bool success));
+    void getLokomotiveConfig(void (*writeFileCallback)(std::string *data), void (*resultCallback)(bool success));
 
 protected:
     // function is called by class ConfigDataStream in case that values where successful received with or without intention
@@ -61,7 +55,7 @@ private:
     // sobald die locolist gedownloaded ist, werden alle lokomotivnamen extahiert und gespeichert.
     // Anschließend wird jeweils mit push_back ein speicher angelegt, welcher dann request ConfigData übergeben wird
 
-    std::vector<std::unique_ptr<LocoData>> *m_locos{nullptr};
+    std::vector<std::string> m_locoList;
 
     uint32_t m_uid{0};
 
@@ -79,7 +73,7 @@ private:
 
     std::string m_currentInfo;
 
-    std::string *m_currentBuffer{nullptr};
+    std::string m_buffer;
 
     bool m_isZLib{false};
 
@@ -87,7 +81,9 @@ private:
 
     uint8_t m_transmissionStarted{false};
 
-    void (*m_callbackFunc)(bool success){nullptr};
+    void (*m_resultCallback)(bool success){nullptr};
+
+    void (*m_writeFileCallback)(std::string *data){nullptr};
 
     bool m_debug;
 };

@@ -16,6 +16,7 @@ bool MaerklinConfigDataStream::requestConfigData(DataType type, std::string *inf
         return false;
     }
     m_buffer = buffer;
+    m_buffer->clear();
 
     switch (type)
     {
@@ -31,7 +32,7 @@ bool MaerklinConfigDataStream::requestConfigData(DataType type, std::string *inf
         m_interface.requestConfigData(request);
         Serial.println(info->c_str());
         uint8_t numberOfRequests{0};
-        size_t infoIndex {0};
+        size_t infoIndex{0};
         do
         {
             delayMicroseconds(50);
@@ -57,7 +58,7 @@ bool MaerklinConfigDataStream::requestConfigData(DataType type, std::string *inf
         std::array<uint8_t, 8> request = {'l', 'o', 'k', 'n', 'a', 'm', 'e', 'n'};
         m_interface.requestConfigData(request);
         delayMicroseconds(50);
-        size_t infoIndex {0};
+        size_t infoIndex{0};
         for (uint8_t i = 0; i < request.size(); i++)
         {
             if (info->size() > infoIndex)
@@ -78,7 +79,7 @@ bool MaerklinConfigDataStream::requestConfigData(DataType type, std::string *inf
         std::array<uint8_t, 8> request = {'m', 'a', 'g', 'i', 'n', 'f', 'o', 0};
         m_interface.requestConfigData(request);
         delayMicroseconds(50);
-        size_t infoIndex {0};
+        size_t infoIndex{0};
         for (size_t i = 0; i < request.size(); i++)
         {
             if (info->size() > infoIndex)

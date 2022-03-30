@@ -2,10 +2,10 @@
  * Can2Udp
  *
  * Copyright (C) 2022 Marcel Maage
- * 
+ *
  * based on https://github.com/GBert/railroad/blob/master/can2udp/src/can2udp.c
- * by Gerhard Bertelsmann 
- * 
+ * by Gerhard Bertelsmann
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -122,6 +122,21 @@ void Can2Udp::handleUdpPacket(uint8_t *udpframe, size_t size)
         // Serial.print(frame.data.u8[3], HEX);
         // Serial.println(frame.data.u8[4], HEX);
 
+        if (m_debug)
+        {
+            Serial.print("UDP ");
+            Serial.print(tx_frame.identifier, HEX);
+            Serial.print(" ");
+            Serial.print(tx_frame.data_length_code, HEX);
+            Serial.print(" ");
+            for (int i = 0; i < (tx_frame.data_length_code); i++)
+            {
+                Serial.print(tx_frame.data[i], HEX);
+                Serial.print(" ");
+            }
+            Serial.print("\n");
+        }
+
         /* answer to TWAI ping from LAN to LAN */
         if (((tx_frame.identifier & 0x00FF0000UL) == 0x00310000UL) &&
             (udpframe[11] == 0xEE) && (udpframe[12] == 0xEE))
@@ -142,26 +157,14 @@ void Can2Udp::handleUdpPacket(uint8_t *udpframe, size_t size)
             // Udp.endPacket();
             m_udpInterface.broadcastTo(udpframe_reply, 13, m_destinationPort); //, TCPIP_ADAPTER_IF_AP);
         }
-        if (m_debug)
+        else
         {
-            Serial.print("UDP ");
-            Serial.print(tx_frame.identifier, HEX);
-            Serial.print(" ");
-            Serial.print(tx_frame.data_length_code, HEX);
-            Serial.print(" ");
-            for (int i = 0; i < (tx_frame.data_length_code); i++)
+            if (!m_canInterface.transmit(tx_frame, 1000u))
             {
-                Serial.print(tx_frame.data[i], HEX);
-                Serial.print(" ");
-            }
-            Serial.print("\n");
-        }
-
-        if (!m_canInterface.transmit(tx_frame, 1000u))
-        {
-            if (m_debug)
-            {
-                Serial.println("CAN write error");
+                if (m_debug)
+                {
+                    Serial.println("CAN write error");
+                }
             }
         }
     }
