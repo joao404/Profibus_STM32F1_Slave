@@ -55,6 +55,51 @@ bool MaerklinLocoManagment::startConfigDataRequest(DataType type, std::string *i
     return false;
 }
 
+bool MaerklinLocoManagment::Ms2LocoToCs2Loco(std::string* ms2Data, std::string* cs2Data)
+{
+    if((nullptr == ms2Data) || (nullptr == cs2Data))
+    {
+        return false;
+    }
+    uint8_t functionNumber = 0;
+    size_t strLenFkt = strlen(".fkt\n") - 2;
+    *cs2Data = "lokomotive\n ";
+    for(size_t index = (ms2Data->find("lok\n") + 4); index < ms2Data->size(); index++)
+    {
+        char character = ms2Data->at(index);
+        if((char)20 == character)
+        {
+            continue;
+        }
+        else if('\n' == character)
+        {
+            *cs2Data += '\n';
+            *cs2Data += (char)20;
+        }
+        else if('.' == character)
+        {
+            if(ms2Data->find(".fkt\n", index) == index)
+            {
+                *cs2Data += ".funktionen\n ..nr=";
+                char intBuffer[4];
+                sprintf(intBuffer, "%u", functionNumber);
+                *cs2Data += intBuffer;
+                functionNumber++;
+                index += strLenFkt;
+            }
+            else
+            {
+                *cs2Data += character;
+            }
+        }
+        else
+        {
+            *cs2Data += character;
+        }
+    }
+    return true;
+}
+
 void MaerklinLocoManagment::handleConfigDataStreamFeedback(std::string *data, uint16_t hash, bool success)
 {
     if (m_transmissionStarted) // message expected
@@ -129,7 +174,9 @@ void MaerklinLocoManagment::handleConfigDataStreamFeedback(std::string *data, ui
                     if (nullptr != m_writeFileCallback)
                     {
                         // transform loco string into new string
-                        m_writeFileCallback(data);
+                        std::string cs2LocoString;
+                        Ms2LocoToCs2Loco(data, &cs2LocoString);
+                        m_writeFileCallback(&cs2LocoString);
                     }
                     m_currentLocoNum++;
                     if (m_currentLocoNum < m_locoList.size())

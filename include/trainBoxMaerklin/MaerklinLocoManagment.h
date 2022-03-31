@@ -45,6 +45,8 @@ protected:
 
     bool startConfigDataRequest(DataType type, std::string *info, std::string *buffer, uint8_t cmdRepeat);
 
+    bool Ms2LocoToCs2Loco(std::string* ms2Data, std::string* cs2Data);
+
     void handleConfigDataStreamFeedback(std::string *data, uint16_t hash, bool success);
 
     // void newLocoList(std::string& locoList);
