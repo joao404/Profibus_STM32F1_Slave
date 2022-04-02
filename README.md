@@ -3,12 +3,18 @@
 This project is based on the work of:
 - Philipp Gathow (https://pgahtow.de/w/Z21_mobile)
 - Joerg Pleumann (https://github.com/MBuratto/railuino)
-- Gerhard Bertelsmann (https://github.com/GBert/railroad/blob/master/can2udp/src/can2udp.c)
+- Gerhard Bertelsmann (https://github.com/GBert/railroad/blob/master/can2udp/src/can2lan.c)
 
-Provides z21 and Can2Udp server for Maerklin Trainbox 60113. Needs an Esp32 and a Tja1050.
+Provides z21 and RemoteCS2 app(can2lan) server for Maerklin Trainbox 60113. Needs an Esp32 and a Tja1050.
+
+Programming of locos through z21 app is deactivated by default and can be activated in webserver(will automatic be deactivated by next reboot).
+
+Knowing problems:
+- z21 loco programming is not tested
+- Reading of configuration from additional MS2 with software version higher then 3.0 reads only locos
+- Interface for RemoteCS2 app connects and transmit files but does not show loco list
 
 ToDo:
 - Configuration Writing for z21
 - Testing of programming
-- Interface for RemoteCS2 app
-- Reading of configuration from additional MS2
+- Reading of configuration from additional MS2 with software version less than 3.0

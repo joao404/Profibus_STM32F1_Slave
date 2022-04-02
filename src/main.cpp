@@ -26,11 +26,14 @@
 #include "trainBoxMaerklin/CanInterface.h"
 #include "trainBoxMaerklin/MaerklinLocoManagment.h"
 #include "z60.h"
-#include "Can2Udp.h"
+#include "Can2Lan.h"
 
 #include <SPIFFS.h>
 
 #define defaultPassword "" // 12345678" // Default Z60 network password
+
+void handleNotFound(void);
+String getContentType(const String &filename);
 
 WebServer webServer;
 AutoConnect autoConnect(webServer);
@@ -47,11 +50,15 @@ const uint16_t hash{0};
 const uint32_t serialNumber{0xFFFFFFF0};
 const uint16_t swVersion{0x0140};
 const int16_t z21Port{21105};
-z60 centralStation(canInterface, hash, serialNumber, z21Interface::HwType::Z21_XL, swVersion, z21Port, false);
+z60 centralStation(canInterface, hash, serialNumber, z21Interface::HwType::Z21_XL, swVersion, z21Port, true);
 
-Can2Udp can2Udp(canInterface, false);
+Can2Lan *can2Lan;
 
 MaerklinLocoManagment locoManagment(0x0, centralStation, centralStation.getStationList(), 3000, 3);
+
+File lokomotiveCs2;
+
+bool lokomotiveCs2IsValid{true};
 
 /**********************************************************************************/
 void setup()
@@ -73,17 +80,62 @@ void setup()
       " ..value=1129525929\n .entry\n ..key=HardVers\n ..value=3.1\n"
     )); });
 
-  webServer.on("/config/lokomotive.cs2", []()
+  // webServer.on("/config/lokomotive.cs2", []()
+  //              {
+  //     Serial.println("lokomotive requested");
+  //   webServer.send(200, "text/plain",
+  //   F(
+  //   "[lokomotive]\n version\n .major=0\n .minor=1\n session\n .id=1\n"
+  //   " lokomotive\n .uid=0x48\n .name=DHG300\n .adresse=0x48\n .typ=mm2_prg\n .sid=0x1\n .mfxuid=0x0\n"
+  //   " .icon=DHG300\n .symbol=7\n .av=6\n .bv=3\n .volume=25\n .velocity=0\n .richtung=0\n .tachomax=320\n"
+  //   " .vmax=60\n .vmin=3\n .xprotokoll=0\n .mfxtyp=0\n .stand=0x0\n .fahrt=0x0\n .funktionen\n ..nr=0\n"
+  //   " ..typ=1\n ..dauer=0\n ..wert=0\n ..vorwaerts=0x0\n ..rueckwaerts=0x0\n .funktionen\n ..nr=1\n"
+  //   " ..typ=51\n ..dauer=0\n ..wert=0\n ..vorwaerts=0x0\n ..rueckwaerts=0x0\n .inTraktion=0xffffffff\n"
+  //   )); });
+
+  webServer.on("/config/magnetartikel.cs2", []()
                {
-      Serial.println("lokomotive requested");
-    webServer.send(200, "text/plain", 
+      Serial.println("magnetartikel requested");
+    webServer.send(200, "text/plain",
     F(
-    "[lokomotive]\n version\n .major=0\n .minor=1\n session\n .id=1\n"
-    " lokomotive\n .uid=0x48\n .name=DHG300\n .adresse=0x48\n .typ=mm2_prg\n .sid=0x1\n .mfxuid=0x0\n"
-    " .icon=DHG300\n .symbol=7\n .av=6\n .bv=3\n .volume=25\n .velocity=0\n .richtung=0\n .tachomax=320\n"
-    " .vmax=60\n .vmin=3\n .xprotokoll=0\n .mfxtyp=0\n .stand=0x0\n .fahrt=0x0\n .funktionen\n ..nr=0\n"
-    " ..typ=1\n ..dauer=0\n ..wert=0\n ..vorwaerts=0x0\n ..rueckwaerts=0x0\n .funktionen\n ..nr=1\n"
-    " ..typ=51\n ..dauer=0\n ..wert=0\n ..vorwaerts=0x0\n ..rueckwaerts=0x0\n .inTraktion=0xffffffff\n"
+      "[magnetartikel]\n"
+      "version\n"
+      " .minor=1\n"
+    )); });
+
+  webServer.on("/config/gleisbild.cs2", []()
+               {
+      Serial.println("gleisbild requested");
+    webServer.send(200, "text/plain",
+    F(
+      "[gleisbild]\n"
+      "version\n"
+      " .major=1\n"
+      "groesse\n"
+      "zuletztBenutzt\n"
+      " .name=gleisbildDummy\n"
+      "seite\n"
+      " .name=gleisbildDummy\n"
+    )); });
+
+  webServer.on("/config/fahrstrassen.cs2", []()
+               {
+      Serial.println("fahrstrassen requested");
+    webServer.send(200, "text/plain",
+    F(
+      "[fahrstrassen]\n"
+      "version\n"
+      " .minor=4\n"
+    )); });
+
+  webServer.on("/config/gleisbilder/gleisbildDummy.cs2", []()
+               {
+      Serial.println("gleisbildDummy requested");
+    webServer.send(200, "text/plain",
+    F(
+      "[gleisbildseite]\n"
+      "version\n"
+      " .major=1\n"
     )); });
 
   configAutoConnect.ota = AC_OTA_BUILTIN;
@@ -109,21 +161,7 @@ void setup()
 
   autoConnect.config(configAutoConnect);
 
-  autoConnect.onNotFound([]()
-                         {
-    String message = "File Not Found\n";
-    message += "URI: ";
-    message += webServer.uri();
-    message += "\nMethod: ";
-    message += (webServer.method() == HTTP_GET) ? "GET" : "POST";
-    message += "\nArguments: ";
-    message += webServer.args();
-    message += "\n";
-    for (uint8_t i = 0; i < webServer.args(); i++) {
-     message += " " + webServer.argName(i) + ": " + webServer.arg(i) + "\n";
-    }
-    Serial.print(message);
-    webServer.send(404, "text/plain", message); });
+  autoConnect.onNotFound(handleNotFound);
 
   auxZ60Config.add({progActive, readingLoco, saveButton});
 
@@ -144,12 +182,22 @@ void setup()
     if (webServer.hasArg("readingLoco"))
     {
       Serial.println("trigger loco reading");
-      locoManagment.getLokomotiveConfig([](std::string* data){Serial.println("WriteToFile");if(nullptr != data)Serial.println(data->c_str());},
-      [](bool success){Serial.println(success?"success":"failed");});
-      //const char lokliste[] = "lokliste";
-      //locoManagment.requestConfigData(lokliste, vectorLocoList);
+      lokomotiveCs2IsValid = false;
+      lokomotiveCs2 = SPIFFS.open("/config/lokomotive.cs2", FILE_WRITE);
+      if(!lokomotiveCs2)
+      {
+        Serial.println("ERROR failed to open lokomotive.cs2 for writing");
+      }
+      else
+      {
+        locoManagment.getLokomotiveConfig([](std::string* data){if(nullptr != data){Serial.println(data->c_str()); lokomotiveCs2.print(data->c_str());}},
+      [](bool success){Serial.println(success?"success":"failed");lokomotiveCs2.close();lokomotiveCs2IsValid = success;});
+      }
     }
     webServer.send(200, "text/plain", "Success"); });
+
+  // Start the filesystem
+  SPIFFS.begin(true);
 
   autoConnect.begin();
 
@@ -164,7 +212,11 @@ void setup()
 
   centralStation.begin();
 
-  can2Udp.begin();
+  can2Lan = Can2Lan::getCan2Lan();
+  if (nullptr != can2Lan)
+  {
+    can2Lan->begin(&canInterface, true, false);
+  }
 
   Serial.println("OK"); // start - reset serial receive Buffer
 }
@@ -177,4 +229,124 @@ void loop()
   centralStation.cyclic();
   locoManagment.cyclic();
   delayMicroseconds(1);
+}
+
+void createLokomotiveCs2(void)
+{
+  const String &filePath = webServer.uri();
+  if (SPIFFS.exists(filePath.c_str()))
+  {
+    File uploadedFile = SPIFFS.open(filePath, "r");
+    String mime = getContentType(filePath);
+    webServer.streamFile(uploadedFile, mime);
+    uploadedFile.close();
+  }
+}
+
+void handleNotFound(void)
+{
+  const String filePath = webServer.uri();
+  Serial.print(filePath);
+  Serial.println(" requested");
+  if (SPIFFS.exists(filePath.c_str()))
+  {
+    if (strcmp("/config/lokomotive.cs2", filePath.c_str()) == 0)
+    {
+      if (!lokomotiveCs2IsValid)
+      {
+        webServer.send(404, "text/plain", "lokomotive.cs2 under construction");
+        return;
+      }
+    }
+    File uploadedFile = SPIFFS.open(filePath.c_str(), "r");
+    String mime = getContentType(filePath);
+    webServer.streamFile(uploadedFile, mime);
+    uploadedFile.close();
+  }
+  else
+  {
+    String message = "File Not Found\n";
+    message += "URI: ";
+    message += webServer.uri();
+    message += "\nMethod: ";
+    message += (webServer.method() == HTTP_GET) ? "GET" : "POST";
+    message += "\nArguments: ";
+    message += webServer.args();
+    message += "\n";
+    for (uint8_t i = 0; i < webServer.args(); i++)
+    {
+      message += " " + webServer.argName(i) + ": " + webServer.arg(i) + "\n";
+    }
+    Serial.print(message);
+    webServer.send(404, "text/plain", message);
+  }
+}
+
+String getContentType(const String &filename)
+{
+  if (filename.endsWith(".txt"))
+  {
+    return "text/plain";
+  }
+  else if (filename.endsWith(".htm"))
+  {
+    return "text/html";
+  }
+  else if (filename.endsWith(".html"))
+  {
+    return "text/html";
+  }
+  else if (filename.endsWith(".css"))
+  {
+    return "text/css";
+  }
+  else if (filename.endsWith(".js"))
+  {
+    return "application/javascript";
+  }
+  else if (filename.endsWith(".json"))
+  {
+    return "application/json";
+  }
+  else if (filename.endsWith(".png"))
+  {
+    return "image/png";
+  }
+  else if (filename.endsWith(".gif"))
+  {
+    return "image/gif";
+  }
+  else if (filename.endsWith(".jpg"))
+  {
+    return "image/jpeg";
+  }
+  else if (filename.endsWith(".jpeg"))
+  {
+    return "image/jpeg";
+  }
+  else if (filename.endsWith(".ico"))
+  {
+    return "image/x-icon";
+  }
+  else if (filename.endsWith(".svg"))
+  {
+    return "image/svg+xml";
+  }
+  else if (filename.endsWith(".xml"))
+  {
+    return "text/xml";
+  }
+  else if (filename.endsWith(".pdf"))
+  {
+    return "application/x-pdf";
+  }
+  else if (filename.endsWith(".zip"))
+  {
+    return "application/x-zip";
+  }
+  else if (filename.endsWith(".gz"))
+  {
+    return "application/x-gzip";
+  }
+  return "text/plain";
 }

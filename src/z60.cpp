@@ -424,6 +424,10 @@ bool z60::onLocoSpeed(uint32_t id, uint16_t speed)
   {
     adr = static_cast<uint16_t>(id - static_cast<uint32_t>(AddrOffset::DCC));
   }
+  else if(id >= static_cast<uint16_t>(AddrOffset::MFX))
+  {
+    adr = static_cast<uint16_t>(id);
+  }
   else
   {
     adr = static_cast<uint16_t>(id);
@@ -481,6 +485,10 @@ bool z60::onLocoDir(uint32_t id, uint8_t dir)
   {
     adr = static_cast<uint16_t>(id - static_cast<uint32_t>(AddrOffset::DCC));
   }
+  else if(id >= static_cast<uint16_t>(AddrOffset::MFX))
+  {
+    adr = static_cast<uint16_t>(id);
+  }
   else
   {
     adr = static_cast<uint16_t>(id);
@@ -514,6 +522,10 @@ bool z60::onLocoFunc(uint32_t id, uint8_t function, uint8_t value)
   if (id >= static_cast<uint16_t>(AddrOffset::DCC))
   {
     adr = static_cast<uint16_t>(id - static_cast<uint32_t>(AddrOffset::DCC));
+  }
+  else if(id >= static_cast<uint16_t>(AddrOffset::MFX))
+  {
+    adr = static_cast<uint16_t>(id);
   }
   else
   {

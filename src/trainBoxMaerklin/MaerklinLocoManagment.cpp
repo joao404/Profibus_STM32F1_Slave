@@ -64,17 +64,21 @@ bool MaerklinLocoManagment::Ms2LocoToCs2Loco(std::string* ms2Data, std::string* 
     uint8_t functionNumber = 0;
     size_t strLenFkt = strlen(".fkt\n") - 2;
     *cs2Data = "lokomotive\n ";
+    size_t indexEndOfFile = ms2Data->find_last_of('\n');
     for(size_t index = (ms2Data->find("lok\n") + 4); index < ms2Data->size(); index++)
     {
         char character = ms2Data->at(index);
-        if((char)20 == character)
+        if(' ' == character)
         {
             continue;
         }
+        else if(indexEndOfFile == index)
+        {
+        	*cs2Data += "\n";
+        }
         else if('\n' == character)
         {
-            *cs2Data += '\n';
-            *cs2Data += (char)20;
+            *cs2Data += "\n ";
         }
         else if('.' == character)
         {
@@ -148,7 +152,7 @@ void MaerklinLocoManagment::handleConfigDataStreamFeedback(std::string *data, ui
                                                              "version\n"
                                                              " .minor=3\n"
                                                              "session\n"
-                                                             " .id=32")};
+                                                             " .id=1\n")};
                             m_writeFileCallback(&test);
                         }
 
