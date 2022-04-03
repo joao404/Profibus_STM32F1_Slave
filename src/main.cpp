@@ -30,7 +30,7 @@
 
 #include <SPIFFS.h>
 
-#define defaultPassword "" // 12345678" // Default Z60 network password
+#define defaultPassword "12345678" // Default Z60 network password
 
 void handleNotFound(void);
 String getContentType(const String &filename);
@@ -54,7 +54,7 @@ z60 centralStation(canInterface, hash, serialNumber, z21Interface::HwType::Z21_X
 
 Can2Lan *can2Lan;
 
-MaerklinLocoManagment locoManagment(0x0, centralStation, centralStation.getStationList(), 3000, 3);
+MaerklinLocoManagment locoManagment(0x0, centralStation, centralStation.getStationList(), 15000, 3);
 
 File lokomotiveCs2;
 
@@ -197,7 +197,7 @@ void setup()
     webServer.send(200, "text/plain", "Success"); });
 
   // Start the filesystem
-  SPIFFS.begin(true);
+  SPIFFS.begin(false);
 
   autoConnect.begin();
 

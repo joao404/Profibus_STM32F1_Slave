@@ -200,6 +200,7 @@ bool MaerklinConfigDataStream::onConfigDataStream(uint16_t hash, std::array<uint
                     // {
                     //     m_reportResultFunc(m_buffer, hash, true);
                     // }
+                    Serial.println("CRC success");
                     m_reportResultFunc(m_buffer, hash, true);
                     // Success
                     // copy buffer to new location and request next file if needed
@@ -210,6 +211,7 @@ bool MaerklinConfigDataStream::onConfigDataStream(uint16_t hash, std::array<uint
                     // {
                     //     m_reportResultFunc(m_buffer, hash, false);
                     // }
+                    Serial.printf("CRC failed %d : %d", m_crcExpected, CRC_acc);
                     m_reportResultFunc(m_buffer, hash, false);
                 }
             }

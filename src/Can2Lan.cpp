@@ -214,7 +214,6 @@ void Can2Lan::handleUdpPacket(uint8_t *udpFrame, size_t size)
                     }
                     uint8_t udpframe_reply[16];
                     memset(udpframe_reply, 0, m_canFrameSize);
-                    memcpy(udpframe_reply, udpFramePtr, m_canFrameSize);
                     udpframe_reply[0] = 0x00;
                     udpframe_reply[1] = 0x30;
                     udpframe_reply[2] = 0x00;
@@ -267,6 +266,7 @@ void Can2Lan::handleTcpPacket(void *arg, AsyncClient *client, void *data, size_t
             uint8_t *tcpFramePtr = tcpFrame;
             for (uint8_t index = 0; index < numberOfMessages; index++)
             {
+                tcpFramePtr = (tcpFrame + (index * interface->m_canFrameSize));
                 uint32_t canid = 0;
                 memcpy(&canid, &tcpFramePtr[0], 4);
                 /* TWAI is stored in network Big Endian format */
@@ -299,10 +299,15 @@ void Can2Lan::handleTcpPacket(void *arg, AsyncClient *client, void *data, size_t
                         {
                             Serial.println("Can device registration");
                         }
+                        //TODO: posssible error based on BIG/Little Endian
                         tcpFramePtr[1] |= 1;
                         tcpFramePtr[4] = 7;
                         tcpFramePtr[10] = 0xff;
                         tcpFramePtr[11] = 0xff;
+                        tx_frame.identifier |= 0x00010000UL;
+                        tx_frame.data_length_code = 7;
+                        tx_frame.data[5] = 0xff;
+                        tx_frame.data[6] = 0xff;
                         if ((client->space() > interface->m_canFrameSize) && client->canSend())
                         {
                             client->add((const char *)tcpFramePtr, interface->m_canFrameSize);
@@ -311,7 +316,28 @@ void Can2Lan::handleTcpPacket(void *arg, AsyncClient *client, void *data, size_t
                         }
                     }
                 }
-                tcpFramePtr = (tcpFrame + (index * interface->m_canFrameSize));
+                else if ((tx_frame.identifier & 0x00FF0000UL) == 0x00400000UL)
+                {
+                    Serial.print("Requested config:");
+                    for (int i = 0; i < (tx_frame.data_length_code); i++)
+                    {
+                        Serial.print((char)tx_frame.data[i]);
+                    }
+                    Serial.print("\n");
+                    continue;// do not send over can or udp
+                }
+                interface->m_udpInterface.broadcastTo(tcpFramePtr, interface->m_canFrameSize, interface->m_destinationPortUdp); //, TCPIP_ADAPTER_IF_AP);
+                
+                if (nullptr != interface->m_canInterface)
+                {
+                    if (!interface->m_canInterface->transmit(tx_frame, 1000u))
+                    {
+                        if (interface->m_debug)
+                        {
+                            Serial.println("CAN write error");
+                        }
+                    }
+                }   
             }
         }
         if (tcpPackages > 0)
@@ -339,6 +365,18 @@ void Can2Lan::handleNewTcpClient(void *arg, AsyncClient *client)
     client->onError(&handleError, NULL);
     client->onDisconnect(&handleDisconnect, NULL);
     client->onTimeout(&handleTimeOut, NULL);
+
+    if ((client->space() > 13) && client->canSend())
+    {
+        uint8_t frame[13];
+        memset(frame, 0, 13);
+        uint32_t canid = htonl(0x00304711UL);
+        memcpy(frame, &canid, 4);
+
+        client->add((const char *)&frame, 13);
+        client->send();
+    }
+
     Can2Lan *interface = Can2Lan::getCan2Lan();
     if (nullptr != interface)
     {
