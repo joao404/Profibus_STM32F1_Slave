@@ -12,9 +12,10 @@ Programming of locos through z21 app is deactivated by default and can be activa
 Knowing problems:
 - z21 loco programming is not tested
 - Reading of configuration from additional MS2 with software version higher then 3.0 reads only locos
-- Interface for RemoteCS2 app connects and transmit files but does not show loco list
+- RemoteCS2 App executes emergency stop in case of loco change
 
 ToDo:
 - Configuration Writing for z21
 - Testing of programming
 - Reading of configuration from additional MS2 with software version less than 3.0
+- add pictures for functions
