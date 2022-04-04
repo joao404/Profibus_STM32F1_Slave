@@ -17,6 +17,8 @@ bool MaerklinConfigDataStream::requestConfigData(DataType type, std::string *inf
     }
     m_buffer = buffer;
     m_buffer->clear();
+    m_lengthExpected = 0xFFFFFFFFUL;
+    m_length = 0;
 
     switch (type)
     {
@@ -153,7 +155,6 @@ bool MaerklinConfigDataStream::onConfigDataStream(uint16_t hash, std::array<uint
     {
         if (hash == m_hashExpected)
         {
-
             // for (auto i : data)
             // {
             //     Serial.print((char)i);
@@ -201,7 +202,9 @@ bool MaerklinConfigDataStream::onConfigDataStream(uint16_t hash, std::array<uint
                     //     m_reportResultFunc(m_buffer, hash, true);
                     // }
                     Serial.println("CRC success");
+                    m_length = 0;
                     m_reportResultFunc(m_buffer, hash, true);
+                    m_buffer->clear();
                     // Success
                     // copy buffer to new location and request next file if needed
                 }
@@ -212,7 +215,9 @@ bool MaerklinConfigDataStream::onConfigDataStream(uint16_t hash, std::array<uint
                     //     m_reportResultFunc(m_buffer, hash, false);
                     // }
                     Serial.printf("CRC failed %d : %d", m_crcExpected, CRC_acc);
-                    m_reportResultFunc(m_buffer, hash, false);
+                    m_length = 0;
+                    m_reportResultFunc(nullptr, hash, false);
+                    m_buffer->clear();                    
                 }
             }
         }
@@ -233,7 +238,7 @@ bool MaerklinConfigDataStream::onConfigDataSteamError(uint16_t hash)
         m_lengthExpected = 0;
         m_hashExpected = 0;
         m_buffer = &m_backupBuffer;
-        m_reportResultFunc(m_buffer, hash, false);
+        m_reportResultFunc(nullptr, hash, false);
         return true;
     }
     return false;

@@ -55,9 +55,9 @@ bool MaerklinLocoManagment::startConfigDataRequest(DataType type, std::string *i
     return false;
 }
 
-bool MaerklinLocoManagment::Ms2LocoToCs2Loco(std::string* ms2Data, std::string* cs2Data)
+bool MaerklinLocoManagment::Ms2LocoToCs2Loco(std::string *ms2Data, std::string *cs2Data)
 {
-    if((nullptr == ms2Data) || (nullptr == cs2Data))
+    if ((nullptr == ms2Data) || (nullptr == cs2Data))
     {
         return false;
     }
@@ -65,24 +65,35 @@ bool MaerklinLocoManagment::Ms2LocoToCs2Loco(std::string* ms2Data, std::string* 
     size_t strLenFkt = strlen(".fkt\n") - 2;
     *cs2Data = "lokomotive\n ";
     size_t indexEndOfFile = ms2Data->find_last_of('\n');
-    for(size_t index = (ms2Data->find("lok\n") + 4); index < ms2Data->size(); index++)
+    bool newLine = true;
+    for (size_t index = (ms2Data->find("lok\n") + 4); index < ms2Data->size(); index++)
     {
         char character = ms2Data->at(index);
-        if(' ' == character)
+        if (' ' == character)
         {
-            continue;
+            if (newLine)
+            {
+                continue;
+            }
+            else
+            {
+                *cs2Data += character;
+            }
         }
-        else if(indexEndOfFile == index)
+        else if (indexEndOfFile == index)
         {
-        	*cs2Data += "\n";
+            *cs2Data += "\n";
+            break;
         }
-        else if('\n' == character)
+        else if ('\n' == character)
         {
+            newLine = true;
             *cs2Data += "\n ";
         }
-        else if('.' == character)
+        else if ('.' == character)
         {
-            if(ms2Data->find(".fkt\n", index) == index)
+            newLine = false;
+            if (ms2Data->find(".fkt\n", index) == index)
             {
                 *cs2Data += ".funktionen\n ..nr=";
                 char intBuffer[4];
@@ -98,6 +109,7 @@ bool MaerklinLocoManagment::Ms2LocoToCs2Loco(std::string* ms2Data, std::string* 
         }
         else
         {
+            newLine = false;
             *cs2Data += character;
         }
     }
@@ -110,6 +122,7 @@ void MaerklinLocoManagment::handleConfigDataStreamFeedback(std::string *data, ui
     {
         if (success)
         {
+            m_lastCmdTimeINms = millis();
             m_transmissionStarted = false;
             // analyze buffer depending on current state
             if (nullptr != data)
@@ -137,23 +150,32 @@ void MaerklinLocoManagment::handleConfigDataStreamFeedback(std::string *data, ui
                     {
                         index += nameStringSize;
                         nameEnd = data->find('\n', index);
-                        m_locoList.emplace_back(data->substr(index, nameEnd - index));
+                        std::string locoName = data->substr(index, nameEnd - index);
+                        if (!locoName.empty())
+                        {
+                            m_locoList.emplace_back(locoName);
+                        }
                         // Serial.print("Found loco:");
                         // Serial.print(m_locos->back()->name.c_str());
                         // Serial.print(" with size ");
                         // Serial.println(m_buffer->substr(index, nameEnd - index).size());
                     }
                     m_currentLocoNum = 0;
+                    Serial.println("lokos:");
+                    for (auto lok : m_locoList)
+                    {
+                        Serial.println(lok.c_str());
+                    }
                     if (m_locoList.size() > 0)
                     {
                         if (nullptr != m_writeFileCallback)
                         {
-                            std::string test{(const char *)F("[lokomotive]\n"
-                                                             "version\n"
-                                                             " .minor=3\n"
-                                                             "session\n"
-                                                             " .id=1\n")};
-                            m_writeFileCallback(&test);
+                            std::string baseString{"[lokomotive]\n"
+                                                   "version\n"
+                                                   " .minor=3\n"
+                                                   "session\n"
+                                                   " .id=1\n"};
+                            m_writeFileCallback(&baseString);
                         }
 
                         if (m_debug)
@@ -211,43 +233,43 @@ void MaerklinLocoManagment::handleConfigDataStreamFeedback(std::string *data, ui
         }
         else
         {
-            // check repeat buffer and trigger resent
-            if (m_cmdRepeat < m_maxCmdRepeat)
+            m_transmissionStarted = false;
+            switch (m_state)
             {
-                m_cmdRepeat++;
-                startConfigDataRequest(m_currentType, &m_currentInfo, &m_buffer);
-            }
-            else
-            {
-                m_transmissionStarted = false;
-                switch (m_state)
-                {
-                case LocoManagmentState::WaitingForLocoList:
-                    // Does not seem to work
-                    // Switch to old version
-                    m_state = LocoManagmentState::WaitingForLocoNamen;
-                    m_currentInfo = "0 2";
-                    m_currentType = DataType::Loknamen;
-                    startConfigDataRequest(m_currentType, &m_currentInfo, &m_buffer, 1);
-                    break;
-
-                case LocoManagmentState::WaitingForLocoInfo:
-                {
-                    Serial.print("Could not get loco:");
-                    Serial.println(m_locoList.at(m_currentLocoNum).c_str());
-                    m_currentLocoNum++;
-                    if (m_currentLocoNum < m_locoList.size())
-                    {
-                        m_state = LocoManagmentState::WaitingForLocoInfo;
-                        m_currentType = DataType::Lokinfo;
-                        m_currentInfo = m_locoList.at(m_currentLocoNum);
-                        startConfigDataRequest(m_currentType, &m_currentInfo, &m_buffer, 1);
-                    }
-                }
+            case LocoManagmentState::WaitingForLocoList:
+                // Does not seem to work
+                // Switch to old version
+                m_state = LocoManagmentState::WaitingForLocoNamen;
+                m_currentInfo = "0 2";
+                m_currentType = DataType::Loknamen;
+                startConfigDataRequest(m_currentType, &m_currentInfo, &m_buffer, 1);
                 break;
-                default:
-                    break;
+
+            case LocoManagmentState::WaitingForLocoInfo:
+            {
+                Serial.print("Could not get loco:");
+                Serial.println(m_locoList.at(m_currentLocoNum).c_str());
+                m_currentLocoNum++;
+                if (m_currentLocoNum < m_locoList.size())
+                {
+                    m_state = LocoManagmentState::WaitingForLocoInfo;
+                    m_currentType = DataType::Lokinfo;
+                    m_currentInfo = m_locoList.at(m_currentLocoNum);
+                    startConfigDataRequest(m_currentType, &m_currentInfo, &m_buffer, 1);
                 }
+            }
+            break;
+            case LocoManagmentState::WaitingForLocoNamen:
+            {
+                // all loco received
+                if (nullptr != m_resultCallback)
+                {
+                    m_resultCallback(false);
+                }
+            }
+            break;
+            default:
+                break;
             }
         }
     }
@@ -280,8 +302,16 @@ void MaerklinLocoManagment::cyclic()
             Serial.print((uint8_t)m_currentType);
             Serial.print(" ");
             Serial.println(m_currentInfo.c_str());
-            // transmission timed out
-            handleConfigDataStreamFeedback(nullptr, 0, false);
+            if (m_cmdRepeat < m_maxCmdRepeat)
+            {
+                Serial.println("Repeat");
+                m_cmdRepeat++;
+                startConfigDataRequest(m_currentType, &m_currentInfo, &m_buffer);
+            }
+            else
+            {
+                handleConfigDataStreamFeedback(nullptr, 0, false);
+            }
         }
     }
 }

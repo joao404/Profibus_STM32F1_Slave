@@ -85,13 +85,13 @@ void setup()
   //     Serial.println("lokomotive requested");
   //   webServer.send(200, "text/plain",
   //   F(
-  //   "[lokomotive]\n version\n .major=0\n .minor=1\n session\n .id=1\n"
-  //   " lokomotive\n .uid=0x48\n .name=DHG300\n .adresse=0x48\n .typ=mm2_prg\n .sid=0x1\n .mfxuid=0x0\n"
-  //   " .icon=DHG300\n .symbol=7\n .av=6\n .bv=3\n .volume=25\n .velocity=0\n .richtung=0\n .tachomax=320\n"
-  //   " .vmax=60\n .vmin=3\n .xprotokoll=0\n .mfxtyp=0\n .stand=0x0\n .fahrt=0x0\n .funktionen\n ..nr=0\n"
-  //   " ..typ=1\n ..dauer=0\n ..wert=0\n ..vorwaerts=0x0\n ..rueckwaerts=0x0\n .funktionen\n ..nr=1\n"
-  //   " ..typ=51\n ..dauer=0\n ..wert=0\n ..vorwaerts=0x0\n ..rueckwaerts=0x0\n .inTraktion=0xffffffff\n"
-  //   )); });
+  // "[lokomotive]\n version\n .major=0\n .minor=1\n session\n .id=1\n"
+  // " lokomotive\n .uid=0x48\n .name=DHG300\n .adresse=0x48\n .typ=mm2_prg\n .sid=0x1\n .mfxuid=0x0\n"
+  // " .icon=DHG300\n .symbol=7\n .av=6\n .bv=3\n .volume=25\n .velocity=0\n .richtung=0\n .tachomax=320\n"
+  // " .vmax=60\n .vmin=3\n .xprotokoll=0\n .mfxtyp=0\n .stand=0x0\n .fahrt=0x0\n .funktionen\n ..nr=0\n"
+  // " ..typ=1\n ..dauer=0\n ..wert=0\n ..vorwaerts=0x0\n ..rueckwaerts=0x0\n .funktionen\n ..nr=1\n"
+  // " ..typ=51\n ..dauer=0\n ..wert=0\n ..vorwaerts=0x0\n ..rueckwaerts=0x0\n .inTraktion=0xffffffff\n"
+  // )); });
 
   webServer.on("/config/magnetartikel.cs2", []()
                {
@@ -190,11 +190,11 @@ void setup()
       }
       else
       {
-        locoManagment.getLokomotiveConfig([](std::string* data){if(nullptr != data){Serial.println(data->c_str()); lokomotiveCs2.print(data->c_str());}},
-      [](bool success){Serial.println(success?"success":"failed");lokomotiveCs2.close();lokomotiveCs2IsValid = success;});
+        locoManagment.getLokomotiveConfig([](std::string* data){if(nullptr != data){/*Serial.println(data->c_str());*/lokomotiveCs2.print(data->c_str());}},
+      [](bool success){Serial.println(success?"Getting locos success":"Getting locos failed");lokomotiveCs2.close();lokomotiveCs2IsValid = success;});
       }
     }
-    webServer.send(200, "text/plain", "Success"); });
+    webServer.send(200, "text/plain", lokomotiveCs2IsValid?"Success":"Ongoing"); });
 
   // Start the filesystem
   SPIFFS.begin(false);
@@ -262,6 +262,21 @@ void handleNotFound(void)
     String mime = getContentType(filePath);
     webServer.streamFile(uploadedFile, mime);
     uploadedFile.close();
+  }
+  else if (getContentType(filePath) == "image/png")
+  {
+    Serial.print(webServer.uri());
+    Serial.println(" requested");
+    if (SPIFFS.exists("/github.png"))
+    {
+      File uploadedFile = SPIFFS.open("/github.png", "r");
+      webServer.streamFile(uploadedFile, "image/png");
+      uploadedFile.close();
+    }
+    else
+    {
+      webServer.send(404, "text/plain", "png not available");
+    }
   }
   else
   {

@@ -4,8 +4,6 @@ version
 session
  .id=1
 lokomotive
- komotive]
-lokomotive
  .dv=1
  .uid=0xb
  .name=ABC
@@ -103,7 +101,7 @@ lokomotive
 lokomotive
  .dv=1
  .uid=0x35
- .name=BR86
+ .name=BR 86
  .adresse=0x35
  .typ=mm2_prg
  .mfxuid=0x0
@@ -198,7 +196,7 @@ lokomotive
 lokomotive
  .dv=1
  .uid=0x2c
- .name=BR043903-4
+ .name=BR 043 903-4
  .adresse=0x2c
  .typ=mmm2_lok
  .mfxuid=0x0
@@ -293,7 +291,7 @@ lokomotive
 lokomotive
  .dv=1
  .uid=0x43
- .name=E118013-2
+ .name=E 118 013-2
  .adresse=0x43
  .typ=mmm2_lok
  .mfxuid=0x0
