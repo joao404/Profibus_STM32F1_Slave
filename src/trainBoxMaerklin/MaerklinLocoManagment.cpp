@@ -55,7 +55,7 @@ bool MaerklinLocoManagment::startConfigDataRequest(DataType type, std::string *i
     return false;
 }
 
-bool MaerklinLocoManagment::Ms2LocoToCs2Loco(std::string *ms2Data, std::string *cs2Data)
+bool MaerklinLocoManagment::Ms2LocoToCs2Loco(std::string& locoName, std::string *ms2Data, std::string *cs2Data)
 {
     if ((nullptr == ms2Data) || (nullptr == cs2Data))
     {
@@ -63,7 +63,7 @@ bool MaerklinLocoManagment::Ms2LocoToCs2Loco(std::string *ms2Data, std::string *
     }
     uint8_t functionNumber = 0;
     size_t strLenFkt = strlen(".fkt\n") - 2;
-    *cs2Data = "lokomotive\n ";
+    *cs2Data = "lokomotive\n .name=" + locoName + "\n ";
     size_t indexEndOfFile = ms2Data->find_last_of('\n');
     bool newLine = true;
     for (size_t index = (ms2Data->find("lok\n") + 4); index < ms2Data->size(); index++)
@@ -102,6 +102,15 @@ bool MaerklinLocoManagment::Ms2LocoToCs2Loco(std::string *ms2Data, std::string *
                 functionNumber++;
                 index += strLenFkt;
             }
+            else if(ms2Data->find(".name=", index) == index)
+            {
+				while(ms2Data->at(index) != '\n')
+				{
+					index++;
+				}
+				index++;
+				newLine = true;
+			}
             else
             {
                 *cs2Data += character;
@@ -201,7 +210,7 @@ void MaerklinLocoManagment::handleConfigDataStreamFeedback(std::string *data, ui
                     {
                         // transform loco string into new string
                         std::string cs2LocoString;
-                        Ms2LocoToCs2Loco(data, &cs2LocoString);
+                        Ms2LocoToCs2Loco(m_locoList.at(m_currentLocoNum), data, &cs2LocoString);
                         m_writeFileCallback(&cs2LocoString);
                     }
                     m_currentLocoNum++;
