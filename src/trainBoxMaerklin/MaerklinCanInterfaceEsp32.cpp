@@ -2,7 +2,7 @@
  * TrainBox Maerklin Esp32
  *
  * Copyright (C) 2022 Marcel Maage
- * 
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -16,9 +16,8 @@
 
 #include "trainBoxMaerklin/MaerklinCanInterfaceEsp32.h"
 
-MaerklinCanInterfaceEsp32::MaerklinCanInterfaceEsp32(CanInterface &canInterface, word hash, bool debug)
-    : MaerklinCanInterface(hash, debug),
-      m_canInterface(canInterface)
+MaerklinCanInterfaceEsp32::MaerklinCanInterfaceEsp32(word hash, bool debug)
+    : MaerklinCanInterface(hash, debug)
 {
 }
 
@@ -27,20 +26,26 @@ MaerklinCanInterfaceEsp32::~MaerklinCanInterfaceEsp32()
   end();
 }
 
-void MaerklinCanInterfaceEsp32::end()
+bool MaerklinCanInterfaceEsp32::setCanObserver(std::shared_ptr<CanInterface> canInterface)
 {
+  m_canInterface = canInterface;
+  return nullptr != m_canInterface;
 }
 
 void MaerklinCanInterfaceEsp32::begin()
 {
-  m_canInterface.attach(*this);
+  m_canInterface->attach(*this);
 
   MaerklinCanInterface::begin();
 }
 
+void MaerklinCanInterfaceEsp32::end()
+{
+}
+
 void MaerklinCanInterfaceEsp32::update(Observable &observable, void *data)
 {
-  if (&observable == &m_canInterface)
+  if (&observable == m_canInterface.get())
   {
     if (nullptr != data)
     {
@@ -95,14 +100,24 @@ bool MaerklinCanInterfaceEsp32::sendMessage(TrackMessage &message)
   }
 #endif
 
-  return m_canInterface.transmit(tx_frame, 100u);
+  bool result{false};
+  if (nullptr != m_canInterface.get())
+  {
+    result = m_canInterface->transmit(tx_frame, 100u);
+  }
+  return result;
 }
 
 bool MaerklinCanInterfaceEsp32::receiveMessage(TrackMessage &message)
 {
   can_message_t rx_frame;
 
-  bool result = (m_canInterface.receive(rx_frame, 200u) == ESP_OK);
+  bool result{false};
+
+  if (nullptr != m_canInterface.get())
+  {
+    (m_canInterface->receive(rx_frame, 200u) == ESP_OK);
+  }
 
   if (result)
   {

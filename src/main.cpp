@@ -44,13 +44,13 @@ ACCheckbox(progActive, "progActive", "Trackprogramming activ", false);
 ACCheckbox(readingLoco, "readingLoco", "Read locos from Mobile Station", false);
 ACSubmit(saveButton, "Save", "/z60configured");
 
-CanInterface canInterface;
+std::shared_ptr<CanInterface> canInterface = std::make_shared<CanInterface>();
 
 const uint16_t hash{0};
 const uint32_t serialNumber{0xFFFFFFF0};
 const uint16_t swVersion{0x0140};
 const int16_t z21Port{21105};
-z60 centralStation(canInterface, hash, serialNumber, z21Interface::HwType::Z21_XL, swVersion, z21Port, true);
+z60 centralStation(hash, serialNumber, z21Interface::HwType::Z21_XL, swVersion, z21Port, true);
 
 Can2Lan *can2Lan;
 
@@ -206,7 +206,15 @@ void setup()
   // Serial.print("AP IP address: ");
   // Serial.println(myIP);
 
-  canInterface.begin();
+  if (nullptr != canInterface.get())
+  {
+    canInterface->begin();
+  }
+
+  if (!centralStation.setCanObserver(canInterface))
+  {
+    Serial.println("ERROR: No can interface defined");
+  }
 
   centralStation.setLocoManagment(&locoManagment);
 
@@ -215,7 +223,7 @@ void setup()
   can2Lan = Can2Lan::getCan2Lan();
   if (nullptr != can2Lan)
   {
-    can2Lan->begin(&canInterface, true, false);
+    can2Lan->begin(canInterface, true, false);
   }
 
   Serial.println("OK"); // start - reset serial receive Buffer
@@ -225,7 +233,7 @@ void setup()
 void loop()
 {
   autoConnect.handleClient();
-  canInterface.cyclic();
+  canInterface->cyclic();
   centralStation.cyclic();
   locoManagment.cyclic();
   delayMicroseconds(1);

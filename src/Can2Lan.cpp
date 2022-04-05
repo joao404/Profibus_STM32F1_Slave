@@ -33,7 +33,6 @@ Can2Lan *Can2Lan::getCan2Lan()
 Can2Lan::Can2Lan()
     : m_debug(false),
       m_canDebug(false),
-      m_canInterface(nullptr),
       m_localPortUdp(15731),
       m_localPortTcp(15731),
       m_destinationPortUdp(15730)
@@ -44,7 +43,7 @@ Can2Lan::~Can2Lan()
 {
 }
 
-void Can2Lan::begin(CanInterface *canInterface, bool debug, bool canDebug, int localPortUdp, int localPortTcp, int destinationPortUdp)
+void Can2Lan::begin(std::shared_ptr<CanInterface> canInterface, bool debug, bool canDebug, int localPortUdp, int localPortTcp, int destinationPortUdp)
 {
     m_canInterface = canInterface;
     m_debug = debug;
@@ -66,7 +65,7 @@ void Can2Lan::begin(CanInterface *canInterface, bool debug, bool canDebug, int l
         m_tcpInterface->begin();
     }
 
-    if (nullptr == m_canInterface)
+    if (nullptr == m_canInterface.get())
     {
         Serial.println("ERROR m_canInterface is nullptr");
         return;
@@ -92,7 +91,7 @@ void Can2Lan::begin(CanInterface *canInterface, bool debug, bool canDebug, int l
 // handle CAN frame
 void Can2Lan::update(Observable &observable, void *data)
 {
-    if (&observable == m_canInterface)
+    if (&observable == m_canInterface.get())
     {
         if (nullptr != data)
         {

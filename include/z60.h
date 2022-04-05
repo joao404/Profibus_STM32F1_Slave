@@ -46,7 +46,7 @@ public:
     };
 
 public:
-    z60(CanInterface &canInterface, uint16_t hash, uint32_t serialNumber, HwType hwType, uint32_t swVersion, int16_t port, bool debug);
+    z60(uint16_t hash, uint32_t serialNumber, HwType hwType, uint32_t swVersion, int16_t port, bool debug);
     virtual ~z60();
     void begin();
     void cyclic();

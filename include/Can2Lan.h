@@ -33,7 +33,7 @@ class Can2Lan : public Observer
 public:
     static Can2Lan* getCan2Lan();
     virtual ~Can2Lan();
-    void begin(CanInterface* canInterface, bool debug, bool canDebug, int localPortUdp = 15731, int localPortTcp = 15731, int destinationPortUdp = 15730);
+    void begin(std::shared_ptr<CanInterface> canInterface, bool debug, bool canDebug, int localPortUdp = 15731, int localPortTcp = 15731, int destinationPortUdp = 15730);
 
     static void handleNewTcpClient(void *arg, AsyncClient *client);
     static void handleTcpPacket(void *arg, AsyncClient *client, void *data, size_t len);
@@ -56,7 +56,7 @@ private:
 
     const uint8_t m_canFrameSize{13};
 
-    CanInterface* m_canInterface;
+    std::shared_ptr<CanInterface> m_canInterface;
 
     int m_localPortUdp;
     int m_localPortTcp;

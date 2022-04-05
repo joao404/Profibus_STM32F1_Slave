@@ -16,8 +16,8 @@
 
 #include "z60.h"
 
-z60::z60(CanInterface &canInterface, uint16_t hash, uint32_t serialNumber, HwType hwType, uint32_t swVersion, int16_t port, bool debug)
-    : MaerklinCanInterfaceEsp32(canInterface, hash, debug),
+z60::z60(uint16_t hash, uint32_t serialNumber, HwType hwType, uint32_t swVersion, int16_t port, bool debug)
+    : MaerklinCanInterfaceEsp32(hash, debug),
       z21InterfaceEsp32(hwType, swVersion, port, debug),
       m_serialNumber(serialNumber),
       m_programmingActiv(false),
