@@ -140,7 +140,11 @@ void setup()
 /**********************************************************************************/
 void loop()
 {
-  WebService::getInstance()->cyclic();
+  WebService *webService = WebService::getInstance();
+  if (nullptr != webService)
+  {
+    webService->cyclic();
+  }
   canInterface->cyclic();
   centralStation.cyclic();
   locoManagment.cyclic();
