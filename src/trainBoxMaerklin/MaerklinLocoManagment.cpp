@@ -63,7 +63,7 @@ bool MaerklinLocoManagment::Ms2LocoToCs2Loco(std::string& locoName, std::string 
     }
     uint8_t functionNumber = 0;
     size_t strLenFkt = strlen(".fkt\n") - 2;
-    *cs2Data = "lokomotive\n .name=" + locoName + "\n ";
+    *cs2Data = "lokomotive\n .name=" + locoName + "\n .icon=loco\n ";
     size_t indexEndOfFile = ms2Data->find_last_of('\n');
     bool newLine = true;
     for (size_t index = (ms2Data->find("lok\n") + 4); index < ms2Data->size(); index++)
