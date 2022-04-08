@@ -268,7 +268,7 @@ void z60::setLocoManagment(MaerklinConfigDataStream *configDataStream)
 // onCallback
 bool z60::onSystemStop(uint32_t id)
 {
-  Serial.println("onSystemStop");
+  Serial.printf("onSystemStop %x\n",id);
   uint8_t data[16];
   data[0] = static_cast<uint8_t>(z21Interface::XHeader::LAN_X_BC_TRACK_POWER);
   data[1] = 0x00; // Power OFF
@@ -278,7 +278,7 @@ bool z60::onSystemStop(uint32_t id)
 
 bool z60::onSystemGo(uint32_t id)
 {
-  Serial.println("onSystemGo");
+  Serial.printf("onSystemGo %x\n",id);
   uint8_t data[16]; // z21Interface send storage
   data[0] = static_cast<uint8_t>(z21Interface::XHeader::LAN_X_BC_TRACK_POWER);
   data[1] = 0x01;
@@ -288,7 +288,7 @@ bool z60::onSystemGo(uint32_t id)
 
 bool z60::onSystemHalt(uint32_t id)
 {
-  Serial.println("onSystemHalt");
+  Serial.printf("onSystemHalt %x\n",id);
   uint8_t data[16]; // z21Interface send storage
   data[0] = static_cast<uint8_t>(z21Interface::XHeader::LAN_X_BC_STOPPED);
   data[1] = 0x00;

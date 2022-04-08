@@ -113,7 +113,7 @@ void Can2Lan::update(Observable &observable, void *data)
                 Serial.print(" ");
                 for (int i = 0; i < (frame->data_length_code); i++)
                 {
-                    Serial.print(udpframe[i], HEX);
+                    Serial.print(frame->data[i], HEX);
                     Serial.print(" ");
                 }
                 Serial.print("\n");

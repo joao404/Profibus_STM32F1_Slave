@@ -78,17 +78,22 @@ void CanInterface::begin()
 void CanInterface::cyclic()
 {
     can_message_t frame;
-    if (can_receive(&frame, 0) == ESP_OK)
+    while (can_receive(&frame, 0) == ESP_OK)
     {
         notify(&frame);
     }
-
     errorHandling();
 }
 
 bool CanInterface::transmit(can_message_t& frame, uint16_t timeoutINms)
 {
-    return (can_transmit(&frame, pdMS_TO_TICKS(timeoutINms)) == ESP_OK);
+    bool result {true};
+    if(can_transmit(&frame, pdMS_TO_TICKS(timeoutINms)) != ESP_OK)
+    {
+        result = false;
+        errorHandling();
+    }
+    return result;
 }
 
 bool CanInterface::receive(can_message_t& frame, uint16_t timeoutINms)

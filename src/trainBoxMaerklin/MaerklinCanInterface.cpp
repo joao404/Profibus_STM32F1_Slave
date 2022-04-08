@@ -169,34 +169,6 @@ void MaerklinCanInterface::handleReceivedMessage(TrackMessage &message)
 		case MaerklinCanInterface::Cmd::systemCmd:
 			switch (static_cast<MaerklinCanInterface::SubCmd>(message.data[4]))
 			{
-			case MaerklinCanInterface::SubCmd::systemStop:
-				if (5 == message.length)
-				{
-					uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
-					messageHandled = onSystemStop(id);
-				}
-				break;
-			case MaerklinCanInterface::SubCmd::systemGo:
-				if (5 == message.length)
-				{
-					uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
-					messageHandled = onSystemGo(id);
-				}
-				break;
-			case MaerklinCanInterface::SubCmd::systemHalt:
-				if (5 == message.length)
-				{
-					uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
-					messageHandled = onSystemHalt(id);
-				}
-				break;
-			case MaerklinCanInterface::SubCmd::locoStop:
-				if (5 == message.length)
-				{
-					uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
-					messageHandled = onLocoStop(id);
-				}
-				break;
 			case MaerklinCanInterface::SubCmd::locoRemoveCycle:
 				if (5 == message.length)
 				{
@@ -240,13 +212,6 @@ void MaerklinCanInterface::handleReceivedMessage(TrackMessage &message)
 					uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
 					uint16_t counter = (message.data[5] << 8) + message.data[6];
 					messageHandled = onMfxCounter(id, counter);
-				}
-				break;
-			case MaerklinCanInterface::SubCmd::systemOverLoad:
-				if (6 == message.length)
-				{
-					uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
-					messageHandled = onSystemOverLoad(id, message.data[5]);
 				}
 				break;
 			case MaerklinCanInterface::SubCmd::systemStatus:
@@ -370,7 +335,7 @@ void MaerklinCanInterface::handleReceivedMessage(TrackMessage &message)
 		case MaerklinCanInterface::Cmd::statusDataConfig:
 			if (8 == message.length)
 			{
-				std::array<uint8_t, 8> data{message.data[0], message.data[1], message.data[2], message.data[3], message.data[4], message.data[5], message.data[6], message.data[7]}; 
+				std::array<uint8_t, 8> data{message.data[0], message.data[1], message.data[2], message.data[3], message.data[4], message.data[5], message.data[6], message.data[7]};
 				messageHandled = onStatusDataConfig(message.hash, data);
 			}
 			else if (6 == message.length)
@@ -382,86 +347,84 @@ void MaerklinCanInterface::handleReceivedMessage(TrackMessage &message)
 		case MaerklinCanInterface::Cmd::requestConfigData:
 			if (8 == message.length)
 			{
-				std::array<uint8_t, 8> data{message.data[0], message.data[1], message.data[2], message.data[3], message.data[4], message.data[5], message.data[6], message.data[7]}; 
+				std::array<uint8_t, 8> data{message.data[0], message.data[1], message.data[2], message.data[3], message.data[4], message.data[5], message.data[6], message.data[7]};
 				messageHandled = onConfigData(message.hash, data);
 			}
 			break;
-
-		case MaerklinCanInterface::Cmd::configDataSteam:
-			if (8 == message.length)
-			{
-				std::array<uint8_t, 8> data{message.data[0], message.data[1], message.data[2], message.data[3], message.data[4], message.data[5], message.data[6], message.data[7]}; 
-				messageHandled = onConfigDataStream(message.hash, data);
-			}
-			else if(7 == message.length)
-			{
-				uint32_t length = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
-				uint16_t crc =  (message.data[4] << 8) + message.data[5];
-				messageHandled = onConfigDataStream(message.hash, length, crc, message.data[6]);
-			}
-			else if(6 == message.length)
-			{
-				uint32_t length = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
-				uint16_t crc =  (message.data[4] << 8) + message.data[5];
-				messageHandled = onConfigDataStream(message.hash, length, crc);
-			}
-			else
-			{
-				messageHandled = onConfigDataSteamError(message.hash);
-			}
-			break;
-
 		default:
 
 			break;
 		}
 	}
-
-	else
+	switch (static_cast<MaerklinCanInterface::Cmd>(message.command))
 	{
-		switch (static_cast<MaerklinCanInterface::Cmd>(message.command))
+	case MaerklinCanInterface::Cmd::systemCmd:
+		switch (static_cast<MaerklinCanInterface::SubCmd>(message.data[4]))
 		{
-		case MaerklinCanInterface::Cmd::systemCmd:
-			switch (static_cast<MaerklinCanInterface::SubCmd>(message.data[4]))
+		case MaerklinCanInterface::SubCmd::systemStop:
+			if ((5 == message.length) || (8 == message.length))
 			{
-			case MaerklinCanInterface::SubCmd::systemOverLoad:
-				if (6 == message.length)
-				{
-					uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
-					messageHandled = onSystemOverLoad(id, message.data[5]);
-				}
-				break;
-			default:
-				break;
+				uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
+				messageHandled = onSystemStop(id);
 			}
 			break;
-		case MaerklinCanInterface::Cmd::configDataSteam:
-			if (8 == message.length)
+		case MaerklinCanInterface::SubCmd::systemGo:
+			if (5 == message.length)
 			{
-				std::array<uint8_t, 8> data{message.data[0], message.data[1], message.data[2], message.data[3], message.data[4], message.data[5], message.data[6], message.data[7]}; 
-				messageHandled = onConfigDataStream(message.hash, data);
+				uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
+				messageHandled = onSystemGo(id);
 			}
-			else if(7 == message.length)
+			break;
+		case MaerklinCanInterface::SubCmd::systemHalt:
+			if (5 == message.length)
 			{
-				uint32_t length = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
-				uint16_t crc =  (message.data[4] << 8) + message.data[5];
-				messageHandled = onConfigDataStream(message.hash, length, crc, message.data[6]);
+				uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
+				messageHandled = onSystemHalt(id);
 			}
-			else if(6 == message.length)
+			break;
+		case MaerklinCanInterface::SubCmd::locoStop:
+			if (5 == message.length)
 			{
-				uint32_t length = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
-				uint16_t crc =  (message.data[4] << 8) + message.data[5];
-				messageHandled = onConfigDataStream(message.hash, length, crc);
+				uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
+				messageHandled = onLocoStop(id);
 			}
-			else
+			break;
+		case MaerklinCanInterface::SubCmd::systemOverLoad:
+			if (6 == message.length)
 			{
-				messageHandled = onConfigDataSteamError(message.hash);
+				uint32_t id = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
+				messageHandled = onSystemOverLoad(id, message.data[5]);
 			}
 			break;
 		default:
-
 			break;
 		}
+		break;
+	case MaerklinCanInterface::Cmd::configDataSteam:
+		if (8 == message.length)
+		{
+			std::array<uint8_t, 8> data{message.data[0], message.data[1], message.data[2], message.data[3], message.data[4], message.data[5], message.data[6], message.data[7]};
+			messageHandled = onConfigDataStream(message.hash, data);
+		}
+		else if (7 == message.length)
+		{
+			uint32_t length = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
+			uint16_t crc = (message.data[4] << 8) + message.data[5];
+			messageHandled = onConfigDataStream(message.hash, length, crc, message.data[6]);
+		}
+		else if (6 == message.length)
+		{
+			uint32_t length = (message.data[0] << 24) + (message.data[1] << 16) + (message.data[2] << 8) + message.data[3];
+			uint16_t crc = (message.data[4] << 8) + message.data[5];
+			messageHandled = onConfigDataStream(message.hash, length, crc);
+		}
+		else
+		{
+			messageHandled = onConfigDataSteamError(message.hash);
+		}
+		break;
+	default:
+		break;
 	}
 
 	if (messageHandled)
@@ -846,10 +809,10 @@ void MaerklinCanInterface::messageStatusDataConfig(TrackMessage &message, uint32
 	message.data[4] = index;
 }
 
-void MaerklinCanInterface::messageConfigData(TrackMessage &message, std::array<uint8_t, 8>& request)
+void MaerklinCanInterface::messageConfigData(TrackMessage &message, std::array<uint8_t, 8> &request)
 {
 	message.clear();
-	message.prio = static_cast<uint8_t>(MessagePrio::maxPrio);//message needs max prio because MS does recognize it otherwise
+	message.prio = static_cast<uint8_t>(MessagePrio::maxPrio); // message needs max prio because MS does recognize it otherwise
 	message.command = static_cast<uint8_t>(MaerklinCanInterface::Cmd::requestConfigData);
 	message.length = 0x08;
 	for (size_t i = 0; i < 8; i++)
@@ -1055,7 +1018,7 @@ bool MaerklinCanInterface::requestStatusDataConfig(uint32_t uid, uint8_t index)
 	return sendMessage(message);
 }
 
-bool MaerklinCanInterface::requestConfigData(std::array<uint8_t, 8>& request)
+bool MaerklinCanInterface::requestConfigData(std::array<uint8_t, 8> &request)
 {
 	TrackMessage message;
 	messageConfigData(message, request);
