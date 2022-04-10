@@ -149,7 +149,8 @@ void Can2Lan::handleUdpPacket(uint8_t *udpFrame, size_t size)
         uint8_t numberOfMessages = size / m_canFrameSize;
         can_message_t tx_frame;
         uint8_t *udpFramePtr = udpFrame;
-        for (uint8_t index = 0; index < numberOfMessages; index++)
+        for (uint8_t index = 0; index < numberOfMessages; 
+            udpFramePtr = (udpFrame + (index * m_canFrameSize)), index++)
         {
             uint32_t canid = 0;
             memcpy(&canid, &udpFramePtr[0], 4);
@@ -193,17 +194,6 @@ void Can2Lan::handleUdpPacket(uint8_t *udpFrame, size_t size)
             }
             else
             {
-                if (nullptr != m_canInterface)
-                {
-                    if (!m_canInterface->transmit(tx_frame, 1000u))
-                    {
-                        if (m_debug)
-                        {
-                            Serial.println("CAN write error");
-                        }
-                    }
-                }
-
                 if (((tx_frame.identifier & 0x00FF0000UL) == 0x00310000UL) &&
                     (tx_frame.data[6] == 0xEE) && (tx_frame.data[7] == 0xEE))
                 {
@@ -221,8 +211,24 @@ void Can2Lan::handleUdpPacket(uint8_t *udpFrame, size_t size)
                     m_udpInterface.broadcastTo(udpframe_reply, m_canFrameSize, m_destinationPortUdp); //, TCPIP_ADAPTER_IF_AP);
                     // ToDo: Send lokomotive.cs2 request to connected cs2
                 }
+                if (nullptr != m_canInterface)
+                {
+                    if (((tx_frame.identifier & 0x00FF0000UL) == 0x000C0000UL) &&
+                    (tx_frame.data_length_code == 5))
+                    {
+                        // Block access for asking loko function value to prevent error in case of connected MS
+                        continue;
+                    }
+                    Serial.println(tx_frame.identifier, HEX);
+                    if (!m_canInterface->transmit(tx_frame, 500u))
+                    {
+                        if (m_debug)
+                        {
+                            Serial.println("CAN write error");
+                        }
+                    }
+                }
             }
-            udpFramePtr = (udpFrame + (index * m_canFrameSize));
         }
     }
     if (tcpPackages > 0)
