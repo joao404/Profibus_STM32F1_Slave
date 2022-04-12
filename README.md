@@ -16,6 +16,4 @@ Known problems:
 
 ToDo:
 - Configuration Writing for z21
-- Testing of programming
 - Reading of configuration from additional MS2 with software version less than 3.0
-- add pictures for functions

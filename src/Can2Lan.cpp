@@ -219,7 +219,7 @@ void Can2Lan::handleUdpPacket(uint8_t *udpFrame, size_t size)
                         // Block access for asking loko function value to prevent error in case of connected MS
                         continue;
                     }
-                    Serial.println(tx_frame.identifier, HEX);
+                    //Serial.println(tx_frame.identifier, HEX);
                     if (!m_canInterface->transmit(tx_frame, 500u))
                     {
                         if (m_debug)

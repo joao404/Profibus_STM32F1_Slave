@@ -1,13 +1,13 @@
 #include "WebService.h"
 
-WebService* WebService::m_instance{nullptr};
+WebService *WebService::m_instance{nullptr};
 
 WebService::WebService()
     : m_AutoConnect(m_WebServer),
-    m_auxZ60Config("/", "Z60 Config"),
-    m_progActive("progActive", "progActive", "Trackprogramming activ", false),
-    m_readingLoco("readingLoco", "readingLoco", "Read locos from Mobile Station", false),
-    m_saveButton("saveButton", "Save", "/z60configured")
+      m_auxZ60Config("/", "Z60 Config"),
+      m_progActive("progActive", "progActive", "Trackprogramming activ", false),
+      m_readingLoco("readingLoco", "readingLoco", "Read locos from Mobile Station", false),
+      m_saveButton("saveButton", "Save", "/z60configured")
 {
     AutoConnectAux auxZ60Config("/", "Z60 Config");
     ACCheckbox(m_progActive, "progActive", "Trackprogramming activ", false);
@@ -89,9 +89,9 @@ WebService::WebService()
     )); });
 }
 
-WebService* WebService::getInstance()
+WebService *WebService::getInstance()
 {
-    if(nullptr == m_instance)
+    if (nullptr == m_instance)
     {
         m_instance = new WebService();
     }
@@ -114,7 +114,7 @@ void WebService::begin(AutoConnectConfig &autoConnectConfig, void (*programmingF
     m_readingFkt = readingFkt;
 
     m_WebServer.on("/z60configured", [this]()
-               {
+                   {
     if (m_WebServer.hasArg("progActive"))
     {
       Serial.println("setProgramming(true)");
@@ -130,8 +130,7 @@ void WebService::begin(AutoConnectConfig &autoConnectConfig, void (*programmingF
       Serial.println("trigger loco reading");
       m_readingFkt();
     }
-    m_WebServer.send(200, "text/plain", "Ongoing"); 
-    });
+    m_WebServer.send(200, "text/plain", "Ongoing"); });
 
     m_AutoConnect.config(autoConnectConfig);
 
@@ -154,7 +153,39 @@ void WebService::handleNotFound(void)
     const String filePath = m_instance->m_WebServer.uri();
     Serial.print(filePath);
     Serial.println(" requested");
-    if (SPIFFS.exists(filePath.c_str()))
+
+    if (m_instance->getContentType(filePath) == "image/png")
+    {
+        Serial.print(m_instance->m_WebServer.uri());
+        Serial.println(" requested");
+        if (filePath.startsWith("/images/cs2/fcticons"))
+        {
+            String requestedFile = filePath.substring(11);
+            if (SPIFFS.exists(requestedFile.c_str()))
+            {
+                File uploadedFile = SPIFFS.open(requestedFile.c_str(), "r");
+                String mime = m_instance->getContentType(requestedFile);
+                m_instance->m_WebServer.streamFile(uploadedFile, mime);
+                uploadedFile.close();
+            }
+            else
+            {
+                m_instance->m_WebServer.send(404, "text/plain", "png not available");
+            }
+        }
+        else if (SPIFFS.exists("/default.png"))
+        {
+            Serial.println("Send default.png");
+            File uploadedFile = SPIFFS.open("/default.png", "r");
+            m_instance->m_WebServer.streamFile(uploadedFile, "image/png");
+            uploadedFile.close();
+        }
+        else
+        {
+            m_instance->m_WebServer.send(404, "text/plain", "png not available");
+        }
+    }
+    else if (SPIFFS.exists(filePath.c_str()))
     {
         if (strcmp("/config/lokomotive.cs2", filePath.c_str()) == 0)
         {
@@ -168,21 +199,6 @@ void WebService::handleNotFound(void)
         String mime = m_instance->getContentType(filePath);
         m_instance->m_WebServer.streamFile(uploadedFile, mime);
         uploadedFile.close();
-    }
-    else if (m_instance->getContentType(filePath) == "image/png")
-    {
-        Serial.print(m_instance->m_WebServer.uri());
-        Serial.println(" requested");
-        if (SPIFFS.exists("/default.png"))
-        {
-            File uploadedFile = SPIFFS.open("/default.png", "r");
-            m_instance->m_WebServer.streamFile(uploadedFile, "image/png");
-            uploadedFile.close();
-        }
-        else
-        {
-            m_instance->m_WebServer.send(404, "text/plain", "png not available");
-        }
     }
     else
     {
@@ -205,7 +221,11 @@ void WebService::handleNotFound(void)
 
 String WebService::getContentType(const String &filename)
 {
-    if (filename.endsWith(".txt"))
+    if (filename.endsWith(".cs2"))
+    {
+        return "text/plain";
+    }
+    else if (filename.endsWith(".txt"))
     {
         return "text/plain";
     }
@@ -268,6 +288,10 @@ String WebService::getContentType(const String &filename)
     else if (filename.endsWith(".gz"))
     {
         return "application/x-gzip";
+    }
+    else if (filename.endsWith(".z21"))
+    {
+        return "application/octet-stream";
     }
     return "text/plain";
 }
