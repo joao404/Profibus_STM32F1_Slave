@@ -154,38 +154,7 @@ void WebService::handleNotFound(void)
     Serial.print(filePath);
     Serial.println(" requested");
 
-    if (m_instance->getContentType(filePath) == "image/png")
-    {
-        Serial.print(m_instance->m_WebServer.uri());
-        Serial.println(" requested");
-        if (filePath.startsWith("/images/cs2/fcticons"))
-        {
-            String requestedFile = filePath.substring(11);
-            if (SPIFFS.exists(requestedFile.c_str()))
-            {
-                File uploadedFile = SPIFFS.open(requestedFile.c_str(), "r");
-                String mime = m_instance->getContentType(requestedFile);
-                m_instance->m_WebServer.streamFile(uploadedFile, mime);
-                uploadedFile.close();
-            }
-            else
-            {
-                m_instance->m_WebServer.send(404, "text/plain", "png not available");
-            }
-        }
-        else if (SPIFFS.exists("/default.png"))
-        {
-            Serial.println("Send default.png");
-            File uploadedFile = SPIFFS.open("/default.png", "r");
-            m_instance->m_WebServer.streamFile(uploadedFile, "image/png");
-            uploadedFile.close();
-        }
-        else
-        {
-            m_instance->m_WebServer.send(404, "text/plain", "png not available");
-        }
-    }
-    else if (SPIFFS.exists(filePath.c_str()))
+    if (SPIFFS.exists(filePath.c_str()))
     {
         if (strcmp("/config/lokomotive.cs2", filePath.c_str()) == 0)
         {
@@ -199,6 +168,21 @@ void WebService::handleNotFound(void)
         String mime = m_instance->getContentType(filePath);
         m_instance->m_WebServer.streamFile(uploadedFile, mime);
         uploadedFile.close();
+    }
+    else if (filePath.startsWith("/images/cs2/fcticons"))
+    {
+        String requestedFile = filePath.substring(11);
+        if (SPIFFS.exists(requestedFile.c_str()))
+        {
+            File uploadedFile = SPIFFS.open(requestedFile.c_str(), "r");
+            String mime = m_instance->getContentType(requestedFile);
+            m_instance->m_WebServer.streamFile(uploadedFile, mime);
+            uploadedFile.close();
+        }
+        else
+        {
+            m_instance->m_WebServer.send(404, "text/plain", "png not available");
+        }
     }
     else
     {
