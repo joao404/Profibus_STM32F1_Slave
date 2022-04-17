@@ -16,13 +16,13 @@
 
 #include "z60.h"
 
-z60::z60(uint16_t hash, uint32_t serialNumber, HwType hwType, uint32_t swVersion, int16_t port, bool debug)
-    : MaerklinCanInterfaceEsp32(hash, debug),
-      z21InterfaceEsp32(hwType, swVersion, port, debug),
+z60::z60(uint16_t hash, uint32_t serialNumber, HwType hwType, uint32_t swVersion, int16_t port, bool debugZ60, bool debugZ21, bool debugTrainbox)
+    : MaerklinCanInterfaceEsp32(hash, debugTrainbox),
+      z21InterfaceEsp32(hwType, swVersion, port, debugZ21),
       m_serialNumber(serialNumber),
       m_programmingActiv(false),
       m_directProgramming(false),
-      m_debug(debug)
+      m_debug(debugZ60)
 {
 }
 
@@ -57,7 +57,8 @@ void z60::begin()
     readSize /= sizeof(ConfigLoco);
     for (size_t i = 0; i < readSize; i++)
     {
-      m_locos.emplace_back(DataLoco{buffer[i].adr, buffer[i].mode, false, 0, true, {buffer[i].steps, 0, 0, 0, 0, 0}});
+
+      m_locos.emplace_back(DataLoco{buffer[i].adrZ21, fromZ21AdrToTrainboxAdr(buffer[i].adrZ21, buffer[i].mode), buffer[i].mode, false, 0, true, {buffer[i].steps, 0, 0, 0, 0, 0}});
     }
 
     // if (preferences.getBytes(keyTurnOutMode, turnOutMode, sizeof(turnOutMode)) != sizeof(turnOutMode))
@@ -110,10 +111,14 @@ void z60::saveLocoConfig()
   size_t index = 0;
   for (DataLoco n : m_locos)
   {
-    buffer[index].adr = n.adr;
-    buffer[index].mode = n.mode;
-    buffer[index].steps = n.data[0] & 0x07;
-    index++;
+    // only locos where trainbox adress is determent by mode are saved
+    if (n.adrZ21 < m_startAdressDcc14)
+    {
+      buffer[index].adrZ21 = n.adrZ21;
+      buffer[index].mode = n.mode;
+      buffer[index].steps = n.data[0] & 0x07;
+      index++;
+    }
   }
 
   if (!m_preferences.begin(m_namespaceZ21, false))
@@ -268,7 +273,7 @@ void z60::setLocoManagment(MaerklinConfigDataStream *configDataStream)
 // onCallback
 bool z60::onSystemStop(uint32_t id)
 {
-  Serial.printf("onSystemStop %x\n",id);
+  Serial.printf("onSystemStop %x\n", id);
   uint8_t data[16];
   data[0] = static_cast<uint8_t>(z21Interface::XHeader::LAN_X_BC_TRACK_POWER);
   data[1] = 0x00; // Power OFF
@@ -278,7 +283,7 @@ bool z60::onSystemStop(uint32_t id)
 
 bool z60::onSystemGo(uint32_t id)
 {
-  Serial.printf("onSystemGo %x\n",id);
+  Serial.printf("onSystemGo %x\n", id);
   uint8_t data[16]; // z21Interface send storage
   data[0] = static_cast<uint8_t>(z21Interface::XHeader::LAN_X_BC_TRACK_POWER);
   data[1] = 0x01;
@@ -288,7 +293,7 @@ bool z60::onSystemGo(uint32_t id)
 
 bool z60::onSystemHalt(uint32_t id)
 {
-  Serial.printf("onSystemHalt %x\n",id);
+  Serial.printf("onSystemHalt %x\n", id);
   uint8_t data[16]; // z21Interface send storage
   data[0] = static_cast<uint8_t>(z21Interface::XHeader::LAN_X_BC_STOPPED);
   data[1] = 0x00;
@@ -304,25 +309,15 @@ bool z60::onLocoStop(uint32_t id)
   //  data[0] = static_cast<uint8_t>(z21Interface::XHeader::LAN_X_BC_TRACK_POWER);
   //  data[1] = 0x00;
   //  EthSend(0x00, 0x07, z21Interface::Header::LAN_X_HEADER, data, true, 0);
-  uint16_t adr = 0;
-  if (id >= static_cast<uint32_t>(AddrOffset::DCC))
-  {
-    adr = static_cast<uint16_t>(id - static_cast<uint32_t>(AddrOffset::DCC));
-  }
-  else
-  {
-    adr = static_cast<uint16_t>(id);
-  }
 
   for (auto finding = m_locos.begin(); finding != m_locos.end(); ++finding)
   // for (dataLoco finding : locos)
   {
-    if (finding->adr == adr)
+    if (finding->adrTrainbox == id)
     {
       uint8_t emergencyStop = 0x01;
       finding->data[1] = emergencyStop + (finding->data[1] & 0x80);
-      notifyLocoState(0, adr, finding->data);
-      break;
+      notifyLocoState(0, finding->adrZ21, finding->data);
     }
   }
   return true;
@@ -419,24 +414,10 @@ bool z60::onLocoSpeed(uint32_t id)
 
 bool z60::onLocoSpeed(uint32_t id, uint16_t speed)
 {
-  uint16_t adr = 0;
-  if (id >= static_cast<uint32_t>(AddrOffset::DCC))
-  {
-    adr = static_cast<uint16_t>(id - static_cast<uint32_t>(AddrOffset::DCC));
-  }
-  else if(id >= static_cast<uint16_t>(AddrOffset::MFX))
-  {
-    adr = static_cast<uint16_t>(id);
-  }
-  else
-  {
-    adr = static_cast<uint16_t>(id);
-  }
-
   for (auto finding = m_locos.begin(); finding != m_locos.end(); ++finding)
   // for (dataLoco finding : locos)
   {
-    if (finding->adr == adr)
+    if (finding->adrTrainbox == id)
     {
       finding->speedResponseReceived = true;
       uint8_t divider = 71; // 14 steps
@@ -452,7 +433,7 @@ bool z60::onLocoSpeed(uint32_t id, uint16_t speed)
       if (m_debug)
       {
         Serial.print("Id:");
-        Serial.print(adr);
+        Serial.print(finding->adrZ21);
         Serial.print(" onLS:");
         Serial.println(speed);
       }
@@ -461,8 +442,7 @@ bool z60::onLocoSpeed(uint32_t id, uint16_t speed)
       uint8_t locoSpeedDcc = 0;
       calcSpeedTrainboxToZ21(locoSpeed, stepConfig, locoSpeedDcc);
       finding->data[1] = locoSpeedDcc | (finding->data[1] & 0x80);
-      notifyLocoState(0, adr, finding->data);
-      break;
+      notifyLocoState(0, finding->adrZ21, finding->data);
     }
   }
   return true;
@@ -480,27 +460,12 @@ bool z60::onLocoDir(uint32_t id, uint8_t dir)
   // Serial.print(" onLocoDir:");
   // Serial.println(dir);
 
-  uint16_t adr = 0;
-  if (id >= static_cast<uint16_t>(AddrOffset::DCC))
-  {
-    adr = static_cast<uint16_t>(id - static_cast<uint32_t>(AddrOffset::DCC));
-  }
-  else if(id >= static_cast<uint16_t>(AddrOffset::MFX))
-  {
-    adr = static_cast<uint16_t>(id);
-  }
-  else
-  {
-    adr = static_cast<uint16_t>(id);
-  }
-
   for (auto finding = m_locos.begin(); finding != m_locos.end(); ++finding)
   {
-    if (finding->adr == adr)
+    if (finding->adrTrainbox == id)
     {
       finding->data[1] = (finding->data[1] & 0x7F) + (2 == dir ? 0x00 : 0x80);
       // notifyLocoState(0, static_cast<uint16_t>(id), finding->second);
-      break;
     }
   }
   return true;
@@ -518,23 +483,9 @@ bool z60::onLocoFunc(uint32_t id, uint8_t function, uint8_t value)
     Serial.println(value);
   }
 
-  uint16_t adr = 0;
-  if (id >= static_cast<uint16_t>(AddrOffset::DCC))
-  {
-    adr = static_cast<uint16_t>(id - static_cast<uint32_t>(AddrOffset::DCC));
-  }
-  else if(id >= static_cast<uint16_t>(AddrOffset::MFX))
-  {
-    adr = static_cast<uint16_t>(id);
-  }
-  else
-  {
-    adr = static_cast<uint16_t>(id);
-  }
-
   for (auto finding = m_locos.begin(); finding != m_locos.end(); ++finding)
   {
-    if (finding->adr == adr)
+    if (finding->adrTrainbox == id)
     {
       if (0 == function)
       {
@@ -560,8 +511,7 @@ bool z60::onLocoFunc(uint32_t id, uint8_t function, uint8_t value)
       {
         Serial.println(F("### ERROR: Function number to big"));
       }
-      notifyLocoState(0, adr, finding->data);
-      break;
+      notifyLocoState(0, finding->adrZ21, finding->data);
     }
   }
   return true;
@@ -791,12 +741,86 @@ void z60::notifyLocoState(uint8_t client, uint16_t Adr, std::array<uint8_t, 6> &
 
 // Z21
 
+void z60::addToLocoList(uint16_t adrZ21, uint8_t mode, uint8_t steps)
+{
+  if (adrZ21 > m_startAdressDcc14)
+  {
+    if (adrZ21 > m_startAdressDcc128) // DCC 128 steps
+    {
+      // mode = 0 = DCC
+      m_locos.push_front(DataLoco{adrZ21, fromZ21AdrToTrainboxAdr(adrZ21, static_cast<uint8_t>(AdrMode::Dcc)), static_cast<uint8_t>(AdrMode::Dcc), true, 0, true, {static_cast<uint8_t>(StepConfig::Step128), 0, 0, 0, 0, 0}});
+    }
+    else if (adrZ21 > m_startAdressDcc28) // DCC 28 steps
+    {
+      // mode = 0 = DCC
+      m_locos.push_front(DataLoco{adrZ21, fromZ21AdrToTrainboxAdr(adrZ21, static_cast<uint8_t>(AdrMode::Dcc)), static_cast<uint8_t>(AdrMode::Dcc), true, 0, true, {static_cast<uint8_t>(StepConfig::Step28), 0, 0, 0, 0, 0}});
+    }
+    else if (adrZ21 > m_startAdressMfx) // MFX (handled like 128 steps DCC)
+    {
+      // mode = 0 = DCC
+      m_locos.push_front(DataLoco{adrZ21, fromZ21AdrToTrainboxAdr(adrZ21, static_cast<uint8_t>(AdrMode::Dcc)), static_cast<uint8_t>(AdrMode::Dcc), true, 0, true, {static_cast<uint8_t>(StepConfig::Step128), 0, 0, 0, 0, 0}});
+    }
+    else if (adrZ21 > m_startAdressMoto) // Motorola
+    {
+      // mode = 1 = Motorola
+      m_locos.push_front(DataLoco{adrZ21, fromZ21AdrToTrainboxAdr(adrZ21, static_cast<uint8_t>(AdrMode::Motorola)), static_cast<uint8_t>(AdrMode::Motorola), true, 0, true, {static_cast<uint8_t>(StepConfig::Step28), 0, 0, 0, 0, 0}});
+    }
+    else // DCC 14 steps
+    {
+      // mode = 0 = DCC
+      m_locos.push_front(DataLoco{adrZ21, fromZ21AdrToTrainboxAdr(adrZ21, static_cast<uint8_t>(AdrMode::Dcc)), static_cast<uint8_t>(AdrMode::Dcc), true, 0, true, {static_cast<uint8_t>(StepConfig::Step14), 0, 0, 0, 0, 0}});
+    }
+  }
+  else
+  {
+    // adressing is based on z21 managment
+    m_locos.push_front(DataLoco{adrZ21, fromZ21AdrToTrainboxAdr(adrZ21, mode), mode, false, 0, true, {static_cast<uint8_t>(steps), 0, 0, 0, 0, 0}});
+  }
+}
+
+uint16_t z60::fromZ21AdrToTrainboxAdr(uint16_t adr, uint8_t mode)
+{
+  uint16_t trainboxAdr = adr;
+  if (adr > m_startAdressDcc14)
+  {
+    if (adr > m_startAdressDcc128) // DCC 128 steps
+    {
+      trainboxAdr -= m_startAdressDcc128;
+      trainboxAdr += static_cast<uint16_t>(AddrOffset::DCC);
+    }
+    else if (adr > m_startAdressDcc28) // DCC 28 steps
+    {
+      trainboxAdr -= m_startAdressDcc28;
+      trainboxAdr += static_cast<uint16_t>(AddrOffset::DCC);
+    }
+    else if (adr > m_startAdressMfx) // MFX (handled like 128 steps DCC)
+    {
+      trainboxAdr -= m_startAdressMfx;
+      trainboxAdr += static_cast<uint16_t>(AddrOffset::MFX);
+    }
+    else if (adr > m_startAdressMoto) // Motorola
+    {
+      trainboxAdr -= m_startAdressMoto;
+    }
+    else // DCC 14 steps
+    {
+      trainboxAdr -= m_startAdressDcc14;
+    }
+  }
+  else
+  {
+    // adressing is based on z21 managment
+    trainboxAdr += (static_cast<uint8_t>(AdrMode::Motorola) == mode ? 0 : static_cast<uint32_t>(AddrOffset::DCC));
+  }
+  return trainboxAdr;
+}
+
 void z60::handleGetLocoMode(uint16_t adr, uint8_t &mode)
 {
   mode = 0;
   for (auto finding = m_locos.begin(); finding != m_locos.end(); ++finding)
   {
-    if (finding->adr == adr)
+    if (finding->adrZ21 == adr)
     {
       mode = finding->mode;
       return;
@@ -813,11 +837,12 @@ void z60::handleSetLocoMode(uint16_t adr, uint8_t mode)
 {
   for (auto finding = m_locos.begin(); finding != m_locos.end(); ++finding)
   {
-    if (finding->adr == adr)
+    if (finding->adrZ21 == adr)
     {
       if (finding->mode != mode)
       {
         finding->mode = mode;
+        finding->adrTrainbox = fromZ21AdrToTrainboxAdr(adr, mode);
         // Write to flash
         saveLocoConfig();
         // speed is send again in next cycle
@@ -828,14 +853,13 @@ void z60::handleSetLocoMode(uint16_t adr, uint8_t mode)
   }
   if (m_debug)
   {
-    Serial.print("handleSetLocoMode");
-    Serial.println(adr);
+    Serial.printf("handleSetLocoMode: %d, %d\n", adr, mode);
   }
   if (m_locos.size() >= m_maxNumberOfLoco)
   {
     m_locos.pop_back();
   }
-  m_locos.push_front(DataLoco{adr, mode, false, 0, true, {static_cast<uint8_t>(StepConfig::Step128), 0, 0, 0, 0, 0}});
+  addToLocoList(adr, mode, static_cast<uint8_t>(StepConfig::Step128));
   saveLocoConfig();
 }
 
@@ -891,17 +915,17 @@ void z60::notifyz21InterfaceLocoState(uint16_t Adr, uint8_t data[])
 {
   for (auto finding = m_locos.begin(); finding != m_locos.end(); ++finding)
   {
-    if (finding->adr == Adr)
+    if (finding->adrZ21 == Adr)
     {
       uint8_t index = 0;
       for (auto i : finding->data)
       {
         data[index++] = i;
       }
-      if (finding->data[0] == static_cast<uint8_t>(StepConfig::Step128))
-      {
-        data[0] = 4;
-      }
+      // if (finding->data[0] == static_cast<uint8_t>(StepConfig::Step128))
+      // {
+      //   data[0] = 4;
+      // }
       return;
     }
   }
@@ -914,7 +938,7 @@ void z60::notifyz21InterfaceLocoState(uint16_t Adr, uint8_t data[])
   {
     m_locos.pop_back();
   }
-  m_locos.push_front(DataLoco{Adr, 0, false, 0, true, {static_cast<uint8_t>(StepConfig::Step128), 0, 0, 0, 0, 0}});
+  addToLocoList(Adr, static_cast<uint8_t>(AdrMode::Motorola), static_cast<uint8_t>(StepConfig::Step128));
   saveLocoConfig();
   data[0] = static_cast<uint8_t>(StepConfig::Step128);
   memset(&data[1], 0, 5);
@@ -925,10 +949,9 @@ void z60::notifyz21InterfaceLocoFkt(uint16_t Adr, uint8_t type, uint8_t fkt)
 {
   for (auto finding = m_locos.begin(); finding != m_locos.end(); ++finding)
   {
-    if (finding->adr == Adr)
+    if (finding->adrZ21 == Adr)
     {
-      uint32_t id = static_cast<uint32_t>(Adr) + (finding->mode ? 0 : static_cast<uint32_t>(AddrOffset::DCC));
-      setLocoFunc(id, fkt, type);
+      setLocoFunc(finding->adrTrainbox, fkt, type);
       return;
     }
   }
@@ -941,7 +964,7 @@ void z60::notifyz21InterfaceLocoFkt(uint16_t Adr, uint8_t type, uint8_t fkt)
     Serial.print("Loco not found:");
     Serial.println(Adr);
   }
-  m_locos.push_front(DataLoco{Adr, 0, false, 0, true, {static_cast<uint8_t>(StepConfig::Step128), 0, 0, 0, 0, 0}});
+  addToLocoList(Adr, static_cast<uint8_t>(AdrMode::Motorola), static_cast<uint8_t>(StepConfig::Step128));
   saveLocoConfig();
 }
 
@@ -950,10 +973,10 @@ void z60::notifyz21InterfaceLocoSpeed(uint16_t Adr, uint8_t speed, uint8_t stepC
 {
   for (auto finding = m_locos.begin(); finding != m_locos.end(); ++finding)
   {
-    if (finding->adr == Adr)
+    if (finding->adrZ21 == Adr)
     {
       // adapt adress for trainbox
-      uint32_t id = static_cast<uint32_t>(Adr) + (finding->mode ? 0 : static_cast<uint32_t>(AddrOffset::DCC));
+      uint32_t id = finding->adrTrainbox;
 
       if (finding->data[0] != stepConfig)
       {
@@ -973,7 +996,7 @@ void z60::notifyz21InterfaceLocoSpeed(uint16_t Adr, uint8_t speed, uint8_t stepC
             sendLocoDataProtocol(id, ProtocolLoco::DCC_SHORT_14);
             break;
           case static_cast<uint8_t>(StepConfig::Step28):
-            if (m_longDccAddressStart > Adr)
+            if (m_longDccAddressStart > (Adr & 0x0FFF))
             {
               sendLocoDataProtocol(id, ProtocolLoco::DCC_SHORT_28);
             }
@@ -983,7 +1006,7 @@ void z60::notifyz21InterfaceLocoSpeed(uint16_t Adr, uint8_t speed, uint8_t stepC
             }
             break;
           case static_cast<uint8_t>(StepConfig::Step128):
-            if (m_longDccAddressStart > Adr)
+            if (m_longDccAddressStart > (Adr & 0x0FFF))
             {
               sendLocoDataProtocol(id, ProtocolLoco::DCC_SHORT_128);
             }
@@ -1056,7 +1079,7 @@ void z60::notifyz21InterfaceLocoSpeed(uint16_t Adr, uint8_t speed, uint8_t stepC
   {
     m_locos.pop_back();
   }
-  m_locos.push_front(DataLoco{Adr, 0, false, 0, true, {stepConfig, 0, 0, 0, 0, 0}});
+  addToLocoList(Adr, static_cast<uint8_t>(AdrMode::Motorola), stepConfig);
   saveLocoConfig();
 }
 
@@ -1239,11 +1262,9 @@ void z60::notifyz21InterfaceCVPOMWRITEBYTE(uint16_t Adr, uint16_t cvAdr, uint8_t
     m_directProgramming = false;
     for (auto finding = m_locos.begin(); finding != m_locos.end(); ++finding)
     {
-      if (finding->adr == Adr)
+      if (finding->adrZ21 == Adr)
       {
-        // adapt adress for trainbox
-        uint32_t id = static_cast<uint32_t>(Adr) + (finding->mode ? 0 : static_cast<uint32_t>(AddrOffset::DCC));
-        sendWriteConfig(id, cvAdr + 1, value, false, true);
+        sendWriteConfig(finding->adrTrainbox, cvAdr + 1, value, false, true);
         return;
       }
     }

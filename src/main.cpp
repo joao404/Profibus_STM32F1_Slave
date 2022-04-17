@@ -36,7 +36,7 @@ const uint16_t hash{0};
 const uint32_t serialNumber{0xFFFFFFF0};
 const uint16_t swVersion{0x0140};
 const int16_t z21Port{21105};
-z60 centralStation(hash, serialNumber, z21Interface::HwType::Z21_XL, swVersion, z21Port, true);
+z60 centralStation(hash, serialNumber, z21Interface::HwType::Z21_XL, swVersion, z21Port, true, false, false);
 
 Can2Lan *can2Lan;
 
@@ -131,7 +131,7 @@ void setup()
   can2Lan = Can2Lan::getCan2Lan();
   if (nullptr != can2Lan)
   {
-    can2Lan->begin(canInterface, true, false);
+    can2Lan->begin(canInterface, true, true);
   }
 
   Serial.println("OK"); // start - reset serial receive Buffer

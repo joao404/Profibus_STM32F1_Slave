@@ -28,9 +28,16 @@
 class z60 : public MaerklinCanInterfaceEsp32, private z21InterfaceEsp32
 {
 public:
+    enum class AdrMode : uint8_t
+    {
+        Dcc = 0x00,
+        Motorola = 0x01
+    };
+
     struct DataLoco
     {
-        uint16_t adr;
+        uint16_t adrZ21;
+        uint16_t adrTrainbox;
         uint8_t mode;
         bool isActive;
         unsigned long lastSpeedCmdTimeINms;
@@ -40,13 +47,13 @@ public:
 
     struct ConfigLoco
     {
-        uint16_t adr;
+        uint16_t adrZ21;
         uint8_t mode;
         uint8_t steps;
     };
 
 public:
-    z60(uint16_t hash, uint32_t serialNumber, HwType hwType, uint32_t swVersion, int16_t port, bool debug);
+    z60(uint16_t hash, uint32_t serialNumber, HwType hwType, uint32_t swVersion, int16_t port, bool debugZ60, bool debugZ21, bool debugTrainbox);
     virtual ~z60();
     void begin();
     void cyclic();
@@ -57,7 +64,7 @@ public:
 
     void setLocoManagment(MaerklinConfigDataStream *configDataStream);
 
-    std::vector<MaerklinStationConfig>& getStationList() { return m_stationList;}
+    std::vector<MaerklinStationConfig> &getStationList() { return m_stationList; }
 
 private:
     // const uint32_t z21Uid{0xBADEAFFE};
@@ -81,6 +88,12 @@ private:
     const size_t m_maxNumberOfLoco{256};
 
     const uint16_t m_longDccAddressStart{128};
+
+    const uint16_t m_startAdressDcc14{1000};
+    const uint16_t m_startAdressMoto{2000};
+    const uint16_t m_startAdressMfx{4000};
+    const uint16_t m_startAdressDcc28{6000};
+    const uint16_t m_startAdressDcc128{8000};
 
     std::list<DataLoco> m_locos;
 
@@ -196,6 +209,8 @@ private:
 
     // Z21
 
+    void addToLocoList(uint16_t adr, uint8_t mode, uint8_t steps);
+    uint16_t fromZ21AdrToTrainboxAdr(uint16_t adr, uint8_t mode);
     void handleGetLocoMode(uint16_t adr, uint8_t &mode) override;
     void handleSetLocoMode(uint16_t adr, uint8_t mode) override;
     void handleGetTurnOutMode(uint16_t adr, uint8_t &mode) override;
