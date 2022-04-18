@@ -59,6 +59,8 @@ void setup()
   configAutoConnect.psk = defaultPassword;
   configAutoConnect.apip = IPAddress(192, 168, 4, 1); // Sets SoftAP IP address
   configAutoConnect.netmask = IPAddress(255, 255, 255, 0);
+  configAutoConnect.channel = random(1,12);
+  Serial.printf("Wifi Channel:%d\n", configAutoConnect.channel);
   configAutoConnect.title = "z60";
   configAutoConnect.beginTimeout = 15000;
   configAutoConnect.autoReset = false;
@@ -79,6 +81,11 @@ void setup()
 
   if (nullptr != webService)
   {
+    auto deleteLocoConfigFkt = []()
+    {
+      centralStation.deleteLocoConfig();
+    };
+
     auto programmingFkt = [](bool result)
     { centralStation.setProgramming(result); };
 
@@ -111,7 +118,7 @@ void setup()
       }
     };
 
-    webService->begin(configAutoConnect, programmingFkt, readingFkt);
+    webService->begin(configAutoConnect, deleteLocoConfigFkt, programmingFkt, readingFkt);
   }
 
   if (nullptr != canInterface.get())
@@ -131,7 +138,7 @@ void setup()
   can2Lan = Can2Lan::getCan2Lan();
   if (nullptr != can2Lan)
   {
-    can2Lan->begin(canInterface, true, true);
+    can2Lan->begin(canInterface, false, false);
   }
 
   Serial.println("OK"); // start - reset serial receive Buffer

@@ -58,6 +58,8 @@ public:
     void begin();
     void cyclic();
 
+    void deleteLocoConfig();
+
     void setProgramming(bool isActiv) { m_programmingActiv = isActiv; }
 
     bool isProgrammingActiv() { return m_programmingActiv; }

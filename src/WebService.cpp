@@ -5,11 +5,13 @@ WebService *WebService::m_instance{nullptr};
 WebService::WebService()
     : m_AutoConnect(m_WebServer),
       m_auxZ60Config("/", "Z60 Config"),
+      m_deleteLocoConfig("deleteLocoConfig", "deleteLocoConfig", "Delete internal memory for z21 loco config", false),
       m_progActive("progActive", "progActive", "Trackprogramming activ", false),
       m_readingLoco("readingLoco", "readingLoco", "Read locos from Mobile Station", false),
       m_saveButton("saveButton", "Save", "/z60configured")
 {
     AutoConnectAux auxZ60Config("/", "Z60 Config");
+    ACCheckbox(m_deleteLocoConfig, "deleteLocoConfig", "Delete internal memory for z21 loco config", false);
     ACCheckbox(m_progActive, "progActive", "Trackprogramming activ", false);
     ACCheckbox(m_readingLoco, "readingLoco", "Read locos from Mobile Station", false);
     ACSubmit(m_saveButton, "Save", "/z60configured");
@@ -107,36 +109,43 @@ void WebService::cyclic()
     m_AutoConnect.handleClient();
 }
 
-void WebService::begin(AutoConnectConfig &autoConnectConfig, void (*programmingFkt)(bool), void (*readingFkt)(void))
+void WebService::begin(AutoConnectConfig &autoConnectConfig, void (*deleteLocoConfigFkt)(void), void (*programmingFkt)(bool), void (*readingFkt)(void))
 {
     m_programmingFkt = programmingFkt;
 
     m_readingFkt = readingFkt;
 
+    m_deleteLocoConfigFkt = deleteLocoConfigFkt;
+
     m_WebServer.on("/z60configured", [this]()
                    {
-    if (m_WebServer.hasArg("progActive"))
-    {
-      Serial.println("setProgramming(true)");
-      m_programmingFkt(true);
-    }
-    else
-    {
-      Serial.println("setProgramming(false)");
-      m_programmingFkt(false);
-    }
-    if (m_WebServer.hasArg("readingLoco"))
-    {
-      Serial.println("trigger loco reading");
-      m_readingFkt();
-    }
-    m_WebServer.send(200, "text/plain", "Ongoing"); });
+        if (m_WebServer.hasArg("deleteLocoConfig"))
+        {
+            Serial.println("deleting z21 loco config");
+            m_deleteLocoConfigFkt();
+        }
+        if (m_WebServer.hasArg("progActive"))
+        {
+            Serial.println("setProgramming(true)");
+            m_programmingFkt(true);
+        }
+        else
+        {
+            Serial.println("setProgramming(false)");
+            m_programmingFkt(false);
+        }
+        if (m_WebServer.hasArg("readingLoco"))
+        {
+            Serial.println("trigger loco reading");
+            m_readingFkt();
+        }
+        m_WebServer.send(200, "text/plain", "Ongoing"); });
 
     m_AutoConnect.config(autoConnectConfig);
 
     m_AutoConnect.onNotFound(WebService::handleNotFound);
 
-    m_auxZ60Config.add({m_progActive, m_readingLoco, m_saveButton});
+    m_auxZ60Config.add({m_deleteLocoConfig, m_progActive, m_readingLoco, m_saveButton});
 
     m_AutoConnect.join(m_auxZ60Config);
 

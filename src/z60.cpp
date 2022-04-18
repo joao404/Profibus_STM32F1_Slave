@@ -135,6 +135,27 @@ void z60::saveLocoConfig()
   }
 }
 
+void z60::deleteLocoConfig()
+{
+  if (!m_preferences.begin(m_namespaceZ21, false))
+  {
+    Serial.println(F("Access preferences failed"));
+  }
+  else
+  {
+    if (!m_preferences.remove(m_keyLocoMode))
+    {
+      Serial.println(F(" Failed to delete locoMode"));
+    }
+    else
+    {
+      // delete all locos currently in memory to prevent writing again
+      m_locos.clear();
+    }
+    m_preferences.end();
+  }
+}
+
 bool z60::calcSpeedZ21toTrainbox(uint8_t data, uint8_t speedConfig, uint8_t &speed)
 {
   bool emergencyStop = false;
