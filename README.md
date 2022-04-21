@@ -18,7 +18,6 @@ Known problems:
 ToDo:
 - Configuration Writing for z21
 - Reading of configuration from additional MS2 with software version less than 3.0
-- Feedback website for locomotive transmission
 
 Wich:
 - Reading of Mfx loco to make MS2 redundant => loco managment needed in that case.

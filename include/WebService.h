@@ -35,5 +35,8 @@ private:
     AutoConnectCheckbox m_deleteLocoConfig;
     AutoConnectCheckbox m_progActive;
     AutoConnectCheckbox m_readingLoco;
-    AutoConnectSubmit m_saveButton;
+    AutoConnectSubmit m_saveButton;  
+    AutoConnectAux m_auxZ60ConfigStatus;
+    AutoConnectText m_readingStatus;
+    AutoConnectSubmit m_reloadButton;     
 };

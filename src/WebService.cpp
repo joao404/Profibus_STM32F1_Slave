@@ -8,14 +8,11 @@ WebService::WebService()
       m_deleteLocoConfig("deleteLocoConfig", "deleteLocoConfig", "Delete internal memory for z21 loco config", false),
       m_progActive("progActive", "progActive", "Trackprogramming activ", false),
       m_readingLoco("readingLoco", "readingLoco", "Read locos from Mobile Station", false),
-      m_saveButton("saveButton", "Save", "/z60configured")
+      m_saveButton("saveButton", "Save", "/z60configstatus"),
+      m_auxZ60ConfigStatus("/z60configstatus", "Z60 Config Status"),
+      m_readingStatus("readingStatus", "readingStatus", "Reading locos: %s"),
+      m_reloadButton("realoadButton", "Reload", "/z60configstatus")
 {
-    AutoConnectAux auxZ60Config("/", "Z60 Config");
-    ACCheckbox(m_deleteLocoConfig, "deleteLocoConfig", "Delete internal memory for z21 loco config", false);
-    ACCheckbox(m_progActive, "progActive", "Trackprogramming activ", false);
-    ACCheckbox(m_readingLoco, "readingLoco", "Read locos from Mobile Station", false);
-    ACSubmit(m_saveButton, "Save", "/z60configured");
-
     m_WebServer.on("/can", [this]()
                    {
                         Serial.println("Can requested");
@@ -23,72 +20,72 @@ WebService::WebService()
 
     m_WebServer.on("/config/prefs.cs2", [this]()
                    {
-      Serial.println("prefs requested");
-    m_WebServer.send(200, "text/plain", 
-    F(
-      "[Preferences]\nversion\n .major=0\n .minor=1\npage\n .entry\n ..key=Version\n ..value=\n"
-      "page\n .entry\n ..key=SerNum\n ..value=84\n .entry\n ..key=GfpUid\n ..value=1129525928\n .entry\n ..key=GuiUid\n"
-      " ..value=1129525929\n .entry\n ..key=HardVers\n ..value=3.1\n"
-    )); });
+                        Serial.println("prefs requested");
+                        m_WebServer.send(200, "text/plain", 
+                        F(
+                            "[Preferences]\nversion\n .major=0\n .minor=1\npage\n .entry\n ..key=Version\n ..value=\n"
+                            "page\n .entry\n ..key=SerNum\n ..value=84\n .entry\n ..key=GfpUid\n ..value=1129525928\n .entry\n ..key=GuiUid\n"
+                            " ..value=1129525929\n .entry\n ..key=HardVers\n ..value=3.1\n"
+                        )); });
 
     m_WebServer.on("/config/magnetartikel.cs2", [this]()
                    {
-      Serial.println("magnetartikel requested");
-    m_WebServer.send(200, "text/plain",
-    F(
-      "[magnetartikel]\n"
-      "version\n"
-      " .minor=1\n"
-    )); });
+                        Serial.println("magnetartikel requested");
+                        m_WebServer.send(200, "text/plain",
+                        F(
+                            "[magnetartikel]\n"
+                            "version\n"
+                            " .minor=1\n"
+                        )); });
 
     m_WebServer.on("/config/gleisbild.cs2", [this]()
                    {
-      Serial.println("gleisbild requested");
-    m_WebServer.send(200, "text/plain",
-    F(
-      "[gleisbild]\n"
-      "version\n"
-      " .major=1\n"
-      "groesse\n"
-      "zuletztBenutzt\n"
-      " .name=gleisbildDummy\n"
-      "seite\n"
-      " .name=gleisbildDummy\n"
-    )); });
+                        Serial.println("gleisbild requested");
+                        m_WebServer.send(200, "text/plain",
+                        F(
+                            "[gleisbild]\n"
+                            "version\n"
+                            " .major=1\n"
+                            "groesse\n"
+                            "zuletztBenutzt\n"
+                            " .name=gleisbildDummy\n"
+                            "seite\n"
+                            " .name=gleisbildDummy\n"
+                        )); });
 
     m_WebServer.on("/config/fahrstrassen.cs2", [this]()
                    {
-      Serial.println("fahrstrassen requested");
-    m_WebServer.send(200, "text/plain",
-    F(
-      "[fahrstrassen]\n"
-      "version\n"
-      " .minor=4\n"
-    )); });
+                        Serial.println("fahrstrassen requested");
+                        m_WebServer.send(200, "text/plain",
+                        F(
+                            "[fahrstrassen]\n"
+                            "version\n"
+                            " .minor=4\n"
+                        )); });
 
     m_WebServer.on("/config/gleisbilder/gleisbildDummy.cs2", [this]()
                    {
-      Serial.println("gleisbildDummy requested");
-    m_WebServer.send(200, "text/plain",
-    F(
-      "[gleisbildseite]\n"
-      "version\n"
-      " .major=1\n"
-    )); });
+                        Serial.println("gleisbildDummy requested");
+                        m_WebServer.send(200, "text/plain",
+                        F(
+                            "[gleisbildseite]\n"
+                            "version\n"
+                            " .major=1\n"
+                        )); });
 
     m_WebServer.on("/config/geraet.vrs", [this]()
                    {
-      Serial.println("geraet requested");
-    m_WebServer.send(200, "text/plain",
-    F(
-"[geraet]\n"
-"version\n"
-" .minor=1\n"
-"geraet\n"
-" .sernum=1\n"
-" .hardvers=ESP,1\n"
-""
-    )); });
+                        Serial.println("geraet requested");
+                        m_WebServer.send(200, "text/plain",
+                        F(
+                            "[geraet]\n"
+                            "version\n"
+                            " .minor=1\n"
+                            "geraet\n"
+                            " .sernum=1\n"
+                            " .hardvers=ESP,1\n"
+                            ""
+                        )); });
 }
 
 WebService *WebService::getInstance()
@@ -117,37 +114,43 @@ void WebService::begin(AutoConnectConfig &autoConnectConfig, void (*deleteLocoCo
 
     m_deleteLocoConfigFkt = deleteLocoConfigFkt;
 
-    m_WebServer.on("/z60configured", [this]()
-                   {
-        if (m_WebServer.hasArg("deleteLocoConfig"))
-        {
-            Serial.println("deleting z21 loco config");
-            m_deleteLocoConfigFkt();
-        }
-        if (m_WebServer.hasArg("progActive"))
-        {
-            Serial.println("setProgramming(true)");
-            m_programmingFkt(true);
-        }
-        else
-        {
-            Serial.println("setProgramming(false)");
-            m_programmingFkt(false);
-        }
-        if (m_WebServer.hasArg("readingLoco"))
-        {
-            Serial.println("trigger loco reading");
-            m_readingFkt();
-        }
-        m_WebServer.send(200, "text/plain", "Ongoing"); });
+    m_auxZ60ConfigStatus.on([this](AutoConnectAux &aux, PageArgument &arg)
+                            {
+                                if (m_AutoConnect.where() != "/z60configstatus") 
+                                {
+                                    if (m_WebServer.hasArg("deleteLocoConfig"))
+                                    {
+                                        Serial.println("deleting z21 loco config");
+                                        m_deleteLocoConfigFkt();
+                                    }
+                                    if (m_WebServer.hasArg("progActive"))
+                                    {
+                                        Serial.println("setProgramming(true)");
+                                        m_programmingFkt(true);
+                                    }
+                                    else
+                                    {
+                                        Serial.println("setProgramming(false)");
+                                        m_programmingFkt(false);
+                                    }
+                                    if (m_WebServer.hasArg("readingLoco"))
+                                    {
+                                        Serial.println("trigger loco reading");
+                                        m_readingFkt();
+                                    }
+                                }
+                            aux["readingStatus"].value = m_lokomotiveAvailable ? "Finished" : "Running";
+                            return String(); });
 
     m_AutoConnect.config(autoConnectConfig);
 
     m_AutoConnect.onNotFound(WebService::handleNotFound);
 
     m_auxZ60Config.add({m_deleteLocoConfig, m_progActive, m_readingLoco, m_saveButton});
+    m_auxZ60ConfigStatus.add({m_readingStatus, m_reloadButton});
 
     m_AutoConnect.join(m_auxZ60Config);
+    m_AutoConnect.join(m_auxZ60ConfigStatus);
 
     m_AutoConnect.begin();
 }
