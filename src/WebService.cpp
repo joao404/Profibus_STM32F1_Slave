@@ -160,8 +160,8 @@ void WebService::setLokomotiveAvailable(bool isAvailable)
 void WebService::handleNotFound(void)
 {
     const String filePath = m_instance->m_WebServer.uri();
-    Serial.print(filePath);
-    Serial.println(" requested");
+    // Serial.print(filePath);
+    // Serial.println(" requested");
 
     if (SPIFFS.exists(filePath.c_str()))
     {

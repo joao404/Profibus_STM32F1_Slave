@@ -13,10 +13,12 @@ Programming of locos through z21 app is deactivated by default and can be activa
 Known problems:
 - z21 loco programming is not tested
 - Reading of configuration from additional MS2 with software version higher then 3.0 reads only locos
+- z21 app does not get stop or go command from MS. Reason unknown
 
 ToDo:
 - Configuration Writing for z21
 - Reading of configuration from additional MS2 with software version less than 3.0
+- Feedback website for locomotive transmission
 
 Wich:
 - Reading of Mfx loco to make MS2 redundant => loco managment needed in that case.
@@ -25,4 +27,17 @@ Wich:
 Note:
 - The Z21 interface only notifies loco values, if this loco was controlled before
 
-##Usage
+## Programming
+- Use PlatformIO to build Filesystem Image
+- Upload FilesystemImage
+- Upload code
+## Usage
+- Connect to new access point with password 12345678
+- Start RemoteCS2/3 or z21 App. Connect to server under ip 192.168.4.1
+
+## Loading locos from MS2
+- Go to webserver under 192.168.4.1
+- Go to Home
+- mark checkbox for "Read locos from Mobile Station"
+- Click on Submit
+- There is currently no feedback when transmission finished
