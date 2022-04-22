@@ -11,6 +11,7 @@ WebService::WebService()
       m_saveButton("saveButton", "Save", "/z60configstatus"),
       m_auxZ60ConfigStatus("/z60configstatus", "Z60 Config Status"),
       m_readingStatus("readingStatus", "readingStatus", "Reading locos: %s"),
+      m_locoNames("locoNames", "locoNames", "%s"),
       m_reloadButton("realoadButton", "Reload", "/z60configstatus")
 {
     m_WebServer.on("/can", [this]()
@@ -139,7 +140,29 @@ void WebService::begin(AutoConnectConfig &autoConnectConfig, void (*deleteLocoCo
                                         m_readingFkt();
                                     }
                                 }
-                            aux["readingStatus"].value = m_lokomotiveAvailable ? "Finished" : "Running";
+                            if(m_transmissionFinished)
+                            {
+                                aux["readingStatus"].value = "Finished with";
+                                aux["readingStatus"].value += m_lokomotiveAvailable ? "Success" : "Failure";
+                                if(nullptr != m_locoList)
+                                {
+                                    aux["locoNames"].value = "";
+                                    for(auto loco : *m_locoList)
+                                    {
+                                        aux["locoNames"].value += loco.c_str();
+                                        aux["locoNames"].value += "/";
+                                    }
+                                }
+                                else
+                                {
+                                    aux["locoNames"].value = "nullptr";
+                                }
+                            }
+                            else
+                            {
+                                aux["readingStatus"].value = "Running";
+                            }
+                            
                             return String(); });
 
     m_AutoConnect.config(autoConnectConfig);
@@ -147,7 +170,7 @@ void WebService::begin(AutoConnectConfig &autoConnectConfig, void (*deleteLocoCo
     m_AutoConnect.onNotFound(WebService::handleNotFound);
 
     m_auxZ60Config.add({m_deleteLocoConfig, m_progActive, m_readingLoco, m_saveButton});
-    m_auxZ60ConfigStatus.add({m_readingStatus, m_reloadButton});
+    m_auxZ60ConfigStatus.add({m_readingStatus, m_locoNames, m_reloadButton});
 
     m_AutoConnect.join(m_auxZ60Config);
     m_AutoConnect.join(m_auxZ60ConfigStatus);
@@ -158,6 +181,11 @@ void WebService::begin(AutoConnectConfig &autoConnectConfig, void (*deleteLocoCo
 void WebService::setLokomotiveAvailable(bool isAvailable)
 {
     m_lokomotiveAvailable = isAvailable;
+}
+
+void WebService::setTransmissionFinished(bool hasFinished)
+{
+    m_transmissionFinished = hasFinished;
 }
 
 void WebService::handleNotFound(void)

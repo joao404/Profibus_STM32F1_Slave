@@ -103,9 +103,12 @@ void setup()
       {
         Serial.println(success ? "Getting locos success" : "Getting locos failed");
         lokomotiveCs2.close();
+        WebService::getInstance()->setLocoList(locoManagment.getLocoList());
         WebService::getInstance()->setLokomotiveAvailable(success);
+        WebService::getInstance()->setTransmissionFinished(true);
       };
 
+      WebService::getInstance()->setTransmissionFinished(false);
       WebService::getInstance()->setLokomotiveAvailable(false);
       lokomotiveCs2 = SPIFFS.open("/config/lokomotive.cs2", FILE_WRITE);
       if (!lokomotiveCs2)

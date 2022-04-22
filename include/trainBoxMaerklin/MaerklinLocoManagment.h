@@ -32,6 +32,8 @@ public:
 
     void getLokomotiveConfig(void (*writeFileCallback)(std::string *data), void (*resultCallback)(bool success));
 
+    std::vector<std::string>* getLocoList() {return &m_locoList;};
+
 protected:
     // function is called by class ConfigDataStream in case that values where successful received with or without intention
     // or a planed transmission failed
