@@ -40,3 +40,18 @@ Note:
 - mark checkbox for "Read locos from Mobile Station"
 - Click on Submit
 - There is currently no feedback when transmission finished
+
+## Adressing locos z21 App
+Adressing can be done exactly like in z21 by using loco configuration in z21 App.
+Additionally adressing can be done by assinging adresses. This prevents unwanted rewritting of adresses.
+1000 => DCC Step 14
+2000 => Motorola 
+4000 => MFX
+6000 => DCC 28 steps
+8000 => DCC 128 steps
+
+With this mechanism, locos can be controlled with identical adress for Motorola and DCC at the same time. What can not be done is using the same adress for different DCC step configurations. So a loco with adress 3 as an example can only exist in the 1000-1999, 6000-7999 or 8000-9999 area. If a loco exists two times, the first one with the adress will be chosen.
+
+## Adressing turnouts
+1-999 Motorola
+1000-x DCC
