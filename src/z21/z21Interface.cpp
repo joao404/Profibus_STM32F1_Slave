@@ -1033,9 +1033,19 @@ void z21Interface::sendSystemInfo(uint8_t client, uint16_t maincurrent, uint16_t
 		#define csePowerLost  0x02 // zu geringe Eingangsspannung
 		#define cseShortCircuitExternal 0x04 // am externen Booster-Ausgang
 		#define cseShortCircuitInternal 0x08 // am Hauptgleis oder Programmiergleis
+		#define cseRCN213 0x20 // Weichenadressierung gem. RCN213
 	*/
 	data[14] = 0x00; // reserved
-	data[15] = 0x00; // reserved
+	data[15] = 0x01 | 0x02 | 0x10 | 0x20 | 0x40; // Capabilities 
+	// Bitmasken für Capabilities:
+	// #define capDCC 0x01 // beherrscht DCC
+	// #define capMM 0x02 // beherrscht MM
+	// //#define capReserved 0x04 // reserviert für zukünftige Erweiterungen
+	// #define capRailCom 0x08 // RailCom ist aktiviert
+	// #define capLocoCmds 0x10 // akzeptiert LAN-Befehle für Lokdecoder
+	// #define capAccessoryCmds 0x20 // akzeptiert LAN-Befehle für Zubehördecoder
+	// #define capDetectorCmds 0x40 // akzeptiert LAN-Befehle für Belegtmelder
+	// #define capNeedsUnlockCode 0x80 // benötigt Freischaltcode (z21start)
 
 	// only to the request client if or if client = 0 to all that select this message (Abo)!
 	if (client > 0)
@@ -1087,6 +1097,15 @@ void z21Interface::EthSend(uint8_t client, unsigned int DataLen, z21Interface::H
 	}
 	else
 	{
+			// ZDebug.print("BTX ");
+			// ZDebug.print(client);
+			// ZDebug.print(" : ");
+			// for (uint8_t x = 0; x < data[0]; x++)
+			// {
+			// 	ZDebug.print(data[x], HEX);
+			// 	ZDebug.print(" ");
+			// }
+			// ZDebug.println();
 		if (BC == 0) // client and flag is zero => Broadcast
 		{
 			notifyz21InterfaceEthSend(0, data);

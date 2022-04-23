@@ -298,7 +298,11 @@ bool z60::onSystemStop(uint32_t id)
   uint8_t data[16];
   data[0] = static_cast<uint8_t>(z21Interface::XHeader::LAN_X_BC_TRACK_POWER);
   data[1] = 0x00; // Power OFF
+  // EthSend(0, 0x07, z21Interface::Header::LAN_X_HEADER, data, true, 0);
   EthSend(0, 0x07, z21Interface::Header::LAN_X_HEADER, data, true, (static_cast<uint16_t>(BcFlagShort::Z21bcAll) | static_cast<uint16_t>(BcFlagShort::Z21bcNetAll)));
+  // data[0] = static_cast<uint8_t>(z21Interface::XHeader::LAN_X_GET_SETTING);
+  // data[1] = 0x80; // Power OFF
+  // EthSend(0, 0x07, z21Interface::Header::LAN_X_HEADER, data, true, 0);
   return true;
 }
 
@@ -308,7 +312,11 @@ bool z60::onSystemGo(uint32_t id)
   uint8_t data[16]; // z21Interface send storage
   data[0] = static_cast<uint8_t>(z21Interface::XHeader::LAN_X_BC_TRACK_POWER);
   data[1] = 0x01;
+  // EthSend(0x00, 0x07, z21Interface::Header::LAN_X_HEADER, data, true, 0);
   EthSend(0x00, 0x07, z21Interface::Header::LAN_X_HEADER, data, true, (static_cast<uint16_t>(BcFlagShort::Z21bcAll) | static_cast<uint16_t>(BcFlagShort::Z21bcNetAll)));
+  // data[0] = static_cast<uint8_t>(z21Interface::XHeader::LAN_X_GET_SETTING);
+  // data[1] = 0x81; // Power ON
+  // EthSend(0, 0x07, z21Interface::Header::LAN_X_HEADER, data, true, 0);
   return true;
 }
 
@@ -318,6 +326,7 @@ bool z60::onSystemHalt(uint32_t id)
   uint8_t data[16]; // z21Interface send storage
   data[0] = static_cast<uint8_t>(z21Interface::XHeader::LAN_X_BC_STOPPED);
   data[1] = 0x00;
+  // EthSend(0x00, 0x07, z21Interface::Header::LAN_X_HEADER, data, true, 0);
   EthSend(0x00, 0x07, z21Interface::Header::LAN_X_HEADER, data, true, (static_cast<uint16_t>(BcFlagShort::Z21bcAll) | static_cast<uint16_t>(BcFlagShort::Z21bcNetAll)));
   return true;
 }
@@ -528,6 +537,10 @@ bool z60::onLocoFunc(uint32_t id, uint8_t function, uint8_t value)
       {
         bitWrite(finding->data[5], function - 21, 0 == value ? 0 : 1);
       }
+      else if (function < 32)
+      {
+        bitWrite(finding->data[6], function - 29, 0 == value ? 0 : 1);
+      }
       else
       {
         Serial.println(F("### ERROR: Function number to big"));
@@ -735,7 +748,7 @@ bool z60::onConfigDataSteamError(uint16_t hash)
   return false;
 }
 
-void z60::notifyLocoState(uint8_t client, uint16_t Adr, std::array<uint8_t, 6> &locoData)
+void z60::notifyLocoState(uint8_t client, uint16_t Adr, std::array<uint8_t, 7> &locoData)
 {
 
   uint8_t data[9];
@@ -756,8 +769,9 @@ void z60::notifyLocoState(uint8_t client, uint16_t Adr, std::array<uint8_t, 6> &
   data[6] = (char)locoData[3]; // F5 - F12; Funktion F5 ist bit0 (LSB)
   data[7] = (char)locoData[4]; // F13-F20
   data[8] = (char)locoData[5]; // F21-F28
+  data[9] = (char)locoData[6]; // F29-F31
 
-  EthSend(0, 14, z21Interface::Header::LAN_X_HEADER, data, true, (static_cast<uint16_t>(BcFlagShort::Z21bcAll) | static_cast<uint16_t>(BcFlagShort::Z21bcNetAll)));
+  EthSend(0, 15, z21Interface::Header::LAN_X_HEADER, data, true, (static_cast<uint16_t>(BcFlagShort::Z21bcAll) | static_cast<uint16_t>(BcFlagShort::Z21bcNetAll)));
 }
 
 // Z21

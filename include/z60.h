@@ -42,7 +42,7 @@ public:
         bool isActive;
         unsigned long lastSpeedCmdTimeINms;
         bool speedResponseReceived;
-        std::array<uint8_t, 6> data;
+        std::array<uint8_t, 7> data;
     };
 
     struct ConfigLoco
@@ -132,7 +132,7 @@ private:
 
     void calcSpeedTrainboxToZ21(uint8_t speed, uint8_t speedConfig, uint8_t &data);
 
-    void notifyLocoState(uint8_t client, uint16_t Adr, std::array<uint8_t, 6> &locoData);
+    void notifyLocoState(uint8_t client, uint16_t Adr, std::array<uint8_t, 7> &locoData);
 
     bool getConfig1(std::array<uint8_t, 10> &config) override;
 
