@@ -751,7 +751,7 @@ bool z60::onConfigDataSteamError(uint16_t hash)
 void z60::notifyLocoState(uint8_t client, uint16_t Adr, std::array<uint8_t, 7> &locoData)
 {
 
-  uint8_t data[9];
+  uint8_t data[10];
   data[0] = static_cast<uint8_t>(z21Interface::XHeader::LAN_X_LOCO_INFO); // 0xEF X-HEADER
   data[1] = (Adr >> 8) & 0x3F;
   data[2] = Adr & 0xFF;
