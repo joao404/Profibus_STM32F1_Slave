@@ -23,6 +23,10 @@
 #include "tim.h"
 #include "xprintf.h"
 #include "profibus/CProfibusSlaveStm32f1.h"
+#include <vector>
+
+
+CProfibusSlave::Config pbConfig;
 
 void uart_putc(uint8_t d) {
 	HAL_UART_Transmit(&huart1, &d, 1, 1000);
@@ -36,7 +40,7 @@ uint8_t uart_getc(void) {
 	return d;
 }
 
-void DataExchange(volatile uint8_t *outputbuf,volatile uint8_t *inputbuf)
+void DataExchange(std::vector<uint8_t>& outputBuf, std::vector<uint8_t>& inputBuf)
 {
   /*
   if(outputbuf!=NULL)
@@ -50,12 +54,12 @@ void DataExchange(volatile uint8_t *outputbuf,volatile uint8_t *inputbuf)
   */
 
   static int counter = 0;
-  if(inputbuf!=NULL)
+  if(0 != inputBuf.size())
   {
     HAL_GPIO_TogglePin(LED_BUILTIN_GPIO_Port, LED_BUILTIN_Pin);
-    for(int i=0;i<INPUT_DATA_SIZE;i++)
+    for(uint8_t i=0;i<inputBuf.size();i++)
     {
-      inputbuf[i]=static_cast<uint8_t>(counter+i);
+      inputBuf[i]=static_cast<uint8_t>(counter+i);
     }
     counter++;
   } 
@@ -65,6 +69,7 @@ void debugOutput(uint8_t* buffer, uint8_t len)
 {
   HAL_UART_Transmit_IT(&huart1, buffer, len);
 }
+
 
 int main(void)
 {
@@ -77,7 +82,19 @@ int main(void)
 
   xprintf("PB Slave Systemfrequenz: %d\n",HAL_RCC_GetSysClockFreq());
 
-  pbInterface.init_Profibus(0x00, 0x2B, DataExchange, debugOutput);
+  pbConfig.counterFrequency = F_CPU;
+  pbConfig.speed = 500000;
+  pbConfig.identHigh = 0x00;
+  pbConfig.identLow = 0x2B;
+  pbConfig.bufSize = 45;
+  pbConfig.inputDataSize = 2;
+  pbConfig.outputDataSize = 5;
+  pbConfig.moduleCount = 5;
+  pbConfig.userParaSize = 0;
+  pbConfig.externDiagParaSize = 0;
+  pbConfig.vendorDataSize = 0;
+
+  pbInterface.init_Profibus(pbConfig, DataExchange, debugOutput);
 
   while (1)
   {

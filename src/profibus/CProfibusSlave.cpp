@@ -18,116 +18,135 @@
 
 #define DEBUG
 
+CProfibusSlave::CProfibusSlave()
+{
+}
+
+CProfibusSlave::~CProfibusSlave()
+{
+}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 /*!
  * \brief Profibus Timer und Variablen initialisieren
  */
-void CProfibusSlave::init_Profibus (uint8_t identHigh, uint8_t identLow, void (*func)(volatile uint8_t *outputbuf,volatile uint8_t *inputbuf), void (*printfunc)(uint8_t* buffer, uint8_t len))
+void CProfibusSlave::init_Profibus(Config config, void (*func)(std::vector<uint8_t> &outputbuf, std::vector<uint8_t> &inputbuf), void (*printfunc)(uint8_t *buffer, uint8_t len))
 {
-  m_datafunc=func;
+  m_datafunc = func;
 
-  if(NULL==printfunc)
+  if (NULL == printfunc)
   {
     configErrorLed();
     errorLedOn();
     return;
   }
-  
-  if(NULL==m_datafunc)
+
+  if (NULL == m_datafunc)
   {
-    #ifdef DEBUG
-    //m_printfunc("No Datafunc");
-    #endif
+#ifdef DEBUG
+    uint8_t debugOutput[] = "No Datafunc";
+    m_printfunc(debugOutput, sizeof(debugOutput));
+#endif
     return;
   }
 
   m_printfunc = printfunc;
 
-  
+  m_config = config;
 
-  m_identHigh = identHigh;
-  m_identLow = identLow;
- 
+  if (0 == m_config.counterFrequency)
+  {
+#ifdef DEBUG
+    uint8_t debugOutput[] = "counterFrequency = 0";
+    m_printfunc(debugOutput, sizeof(debugOutput));
+#endif
+    return;
+  }
+
+  if (0 == m_config.speed)
+  {
+#ifdef DEBUG
+    uint8_t debugOutput[] = "speed = 0";
+    m_printfunc(debugOutput, sizeof(debugOutput));
+#endif
+    return;
+  }
+
+  m_bitTimeINcycle = m_config.counterFrequency / m_config.speed;
+  m_timeoutMaxSynTime = 33 * m_bitTimeINcycle; // 33 TBit = TSYN
+  m_timeoutMaxRxTime = 15 * m_bitTimeINcycle;
+  m_timeoutMaxTxTime = 15 * m_bitTimeINcycle;
+  m_timeoutMaxSdrTime = 15 * m_bitTimeINcycle; // 15 Tbit = TSDR
+
   // Variablen initialisieren
-  stream_status = PROFIBUS_WAIT_SYN;
-  slave_status = POR;
+  stream_status = StreamStatus::WaitSyn;
+  slave_status = DpSlaveState::POR;
   diagnose_status_1 = STATION_NOT_READY_;
-  //Input_Data_size = 0;
-  //Output_Data_size = 0;
+  // Input_Data_size = 0;
+  // Output_Data_size = 0;
   User_Para_size = 0;
   Vendor_Data_size = 0;
   group = 0;
-  
+
   // Slave Adresse holen
-  slave_addr = 0x0B;//get_Address();
+  slave_addr = 0x0B; // get_Address();
 
   // Keine ungueltigen Adresse zulassen
-  if((slave_addr == 0) || (slave_addr > 126)) 
+  if ((slave_addr == 0) || (slave_addr > 126))
     slave_addr = DEFAULT_ADD;
-  
+
   uint8_t cnt = 0;
 
   // Datenregister loeschen
-  #if (OUTPUT_DATA_SIZE > 0)
-  for (cnt = 0; cnt < OUTPUT_DATA_SIZE; cnt++)
+  m_outputReg.resize(m_config.outputDataSize);
+  m_inputReg.resize(m_config.inputDataSize);
+  m_userPara.resize(m_config.userParaSize);
+  m_diagData.resize(m_config.externDiagParaSize);
+  m_VendorData.resize(m_config.vendorDataSize);
+  for (cnt = 0; cnt < m_outputReg.size(); cnt++)
   {
-    output_register[cnt] = 0x00;
+    m_outputReg[cnt] = 0x00;
   }
-  #endif
-  #if (INPUT_DATA_SIZE > 0)
-  for (cnt = 0; cnt < INPUT_DATA_SIZE; cnt++)
+  for (cnt = 0; cnt < m_inputReg.size(); cnt++)
   {
-    input_register[cnt] = 0xFF;
+    m_inputReg[cnt] = 0xFF;
   }
-  #endif
-  #if (USER_PARA_SIZE > 0)
-  for (cnt = 0; cnt < USER_PARA_SIZE; cnt++)
+  for (cnt = 0; cnt < m_userPara.size(); cnt++)
   {
-    User_Para[cnt] = 0x00;
+    m_userPara[cnt] = 0x00;
   }
-  #endif
-  #if (DIAG_DATA_SIZE > 0)
-  for (cnt = 0; cnt < DIAG_DATA_SIZE; cnt++)
+  for (cnt = 0; cnt < m_diagData.size(); cnt++)
   {
-    Diag_Data[cnt] = 0x00;
+    m_diagData[cnt] = 0x00;
   }
-  #endif
 
-  watchdog_time=0xFFFFFF;
-  last_connection_time=millis();
+  watchdog_time = 0xFFFFFF;
+  last_connection_time = millis();
 
   // Timer init
   configTimer();
   setTimerCounter(0);
-  setTimerMax(timeoutMaxSynTime);
-  m_pbUartRxCnt = 0;
-  m_pbUartTxCnt = 0;
-  //LED Status
+  setTimerMax(m_timeoutMaxSynTime);
+  m_rxBufCnt = 0;
+  m_txBufCnt = 0;
+  // LED Status
   configErrorLed();
-  //Pin Init
+  // Pin Init
   configRs485Pin();
-  //RxRs485Enable();
-  //Uart Init
+  // RxRs485Enable();
+  // Uart Init
   configUart();
   runTimer();
   activateRxInterrupt();
-  //activateTxInterrupt();
-  
-  
+  // activateTxInterrupt();
 
- 
-
-  
-  
 #ifdef DEBUG
-  //m_printfunc("Client configured with ");
-  //m_printfunc("%d\n",slave_addr);
+  // m_printfunc("Client configured with ");
+  // m_printfunc("%d\n",slave_addr);
 #endif
 
   // Interrupts freigeben
-  //sei();
-
+  // sei();
 }
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -137,27 +156,26 @@ void CProfibusSlave::init_Profibus (uint8_t identHigh, uint8_t identLow, void (*
  */
 void CProfibusSlave::interruptPbRx(void)
 {
-  
   // Erst mal Byte in Buffer sichern
-  m_pbUartRxBuffer[m_pbUartRxCnt] = getUartValue();
-   
+  m_rxBuffer[m_rxBufCnt] = getUartValue();
+
   // Nur einlesen wenn TSYN abgelaufen
-  if (PROFIBUS_WAIT_DATA == stream_status)
+  if (StreamStatus::WaitData == stream_status)
   {
     // TSYN abgelaufen, Daten einlesen
-    stream_status = PROFIBUS_GET_DATA;
-  }
-  
-  // Einlesen erlaubt?
-  if (PROFIBUS_GET_DATA == stream_status)
-  {
-    m_pbUartRxCnt++;
-    
-    // Nicht mehr einlesen als in Buffer reinpasst 
-    if(m_pbUartRxCnt == MAX_BUFFER_SIZE) m_pbUartRxCnt--;
+    stream_status = StreamStatus::GetData;
   }
 
-  
+  // Einlesen erlaubt?
+  if (StreamStatus::GetData == stream_status)
+  {
+    m_rxBufCnt++;
+
+    // Nicht mehr einlesen als in Buffer reinpasst
+    if (m_rxBufCnt == m_config.bufSize)
+      m_rxBufCnt--;
+  }
+
   // Profibus Timer ruecksetzen
   setTimerCounter(0);
   clearOverflowFlag();
@@ -168,166 +186,158 @@ void CProfibusSlave::interruptPbRx(void)
 /*!
  * \brief Profibus auswertung
  */
-void CProfibusSlave::profibus_RX (void)
+void CProfibusSlave::rxFunc(void)
 {
   uint8_t cnt;
-  uint8_t telegramm_type;
   uint8_t process_data;
 
   // Profibus Datentypen
   uint8_t destination_add;
   uint8_t source_add;
   uint8_t function_code;
-  uint8_t FCS_data;   // Frame Check Sequence
-  uint8_t PDU_size = 0;   // PDU Groesse
-  uint8_t DSAP_data;  // SAP Destination
-  uint8_t SSAP_data;  // SAP Source
-
+  uint8_t FCS_data;     // Frame Check Sequence
+  uint8_t PDU_size = 0; // PDU Groesse
+  uint8_t DSAP_data;    // SAP Destination
+  uint8_t SSAP_data;    // SAP Source
 
   process_data = false;
 
-
-  telegramm_type = m_pbUartRxBuffer[0];
-
-  switch (telegramm_type)
+  switch (m_rxBuffer[0])
   {
-    case SD1: // Telegramm ohne Daten, max. 6 Byte
+  case static_cast<uint8_t>(CmdType::SD1): // Telegramm ohne Daten, max. 6 Byte
 
-        if (m_pbUartRxCnt != 6) break;
+    if (m_rxBufCnt != 6)
+      break;
 
-        destination_add = m_pbUartRxBuffer[1];
-        source_add      = m_pbUartRxBuffer[2];
-        function_code   = m_pbUartRxBuffer[3];
-        FCS_data        = m_pbUartRxBuffer[4];
+    destination_add = m_rxBuffer[1];
+    source_add = m_rxBuffer[2];
+    function_code = m_rxBuffer[3];
+    FCS_data = m_rxBuffer[4];
 
-        if (check_destination_addr(destination_add)       == false) break;
-        if (calc_checksum(&m_pbUartRxBuffer[1], 3) != FCS_data) break;
+    if (checkDestinationAdr(destination_add) == false)
+      break;
+    if (calcChecksum(&m_rxBuffer[1], 3) != FCS_data)
+      break;
 
+    // FCV und FCB loeschen, da vorher überprüft
+    function_code &= 0xCF;
+    process_data = true;
 
-        //FCV und FCB loeschen, da vorher überprüft
-        function_code&=0xCF;
-        process_data = true;
+    break;
 
-        break;
+  case static_cast<uint8_t>(CmdType::SD2): // Telegramm mit variabler Datenlaenge
 
-    case SD2: // Telegramm mit variabler Datenlaenge
+    if (m_rxBufCnt != m_rxBuffer[1] + 6U)
+      break;
 
-        if (m_pbUartRxCnt != m_pbUartRxBuffer[1] + 6U) break;
+    PDU_size = m_rxBuffer[1]; // DA+SA+FC+Nutzdaten
+    destination_add = m_rxBuffer[4];
+    source_add = m_rxBuffer[5];
+    function_code = m_rxBuffer[6];
+    FCS_data = m_rxBuffer[PDU_size + 4U];
 
-        PDU_size        = m_pbUartRxBuffer[1]; // DA+SA+FC+Nutzdaten
-        destination_add = m_pbUartRxBuffer[4];
-        source_add      = m_pbUartRxBuffer[5];
-        function_code   = m_pbUartRxBuffer[6];
-        FCS_data        = m_pbUartRxBuffer[PDU_size + 4U];
-        
-        if (check_destination_addr(destination_add)              == false) break;
-        if (calc_checksum(&m_pbUartRxBuffer[4], PDU_size) != FCS_data) 
-        {
-          //m_printfunc((int)calc_checksum(&pb_uart_buffer[4], PDU_size));
-          break;
-        }
+    if (checkDestinationAdr(destination_add) == false)
+      break;
+    if (calcChecksum(&m_rxBuffer[4], PDU_size) != FCS_data)
+    {
+      // m_printfunc((int)calc_checksum(&pb_uart_buffer[4], PDU_size));
+      break;
+    }
 
-        //FCV und FCB loeschen, da vorher überprüft
-        function_code&=0xCF;
-        process_data = true;
+    // FCV und FCB loeschen, da vorher überprüft
+    function_code &= 0xCF;
+    process_data = true;
 
-        break;
+    break;
 
-    case SD3: // Telegramm mit 5 Byte Daten, max. 11 Byte
+  case static_cast<uint8_t>(CmdType::SD3): // Telegramm mit 5 Byte Daten, max. 11 Byte
 
-        if (m_pbUartRxCnt != 11) break;
+    if (m_rxBufCnt != 11)
+      break;
 
-        PDU_size        = 8;              // DA+SA+FC+Nutzdaten
-        destination_add = m_pbUartRxBuffer[1];
-        source_add      = m_pbUartRxBuffer[2];
-        function_code   = m_pbUartRxBuffer[3];
-        FCS_data        = m_pbUartRxBuffer[9];
+    PDU_size = 8; // DA+SA+FC+Nutzdaten
+    destination_add = m_rxBuffer[1];
+    source_add = m_rxBuffer[2];
+    function_code = m_rxBuffer[3];
+    FCS_data = m_rxBuffer[9];
 
-        if (check_destination_addr(destination_add)       == false) break;
-        if (calc_checksum(&m_pbUartRxBuffer[1], 8) != FCS_data) break;
+    if (checkDestinationAdr(destination_add) == false)
+      break;
+    if (calcChecksum(&m_rxBuffer[1], 8) != FCS_data)
+      break;
 
+    // FCV und FCB loeschen, da vorher überprüft
+    function_code &= 0xCF;
+    process_data = true;
 
-        //FCV und FCB loeschen, da vorher überprüft
-        function_code&=0xCF;
-        process_data = true;
+    break;
 
-        break;
+  case static_cast<uint8_t>(CmdType::SD4): // Token mit 3 Byte Daten
 
-    case SD4: // Token mit 3 Byte Daten
-      
-        if (m_pbUartRxCnt != 3) break;
+    if (m_rxBufCnt != 3)
+      break;
 
-        destination_add = m_pbUartRxBuffer[1];
-        source_add      = m_pbUartRxBuffer[2];
-      
-        if (check_destination_addr(destination_add)       == false) break;
-        
-        break;
-        
-    default:
+    destination_add = m_rxBuffer[1];
+    source_add = m_rxBuffer[2];
 
-        break;
+    if (checkDestinationAdr(destination_add) == false)
+      break;
+
+    break;
+
+  default:
+
+    break;
 
   } // Switch Ende
 
-
-
-  
   // Nur auswerten wenn Daten OK sind
   if (process_data == true)
   {
-    last_connection_time=millis();//letzte Zeit eines Telegramms sichern
-    
-    #ifdef DEBUG
-      //m_printfunc("O");
-    #endif
+    last_connection_time = millis(); // letzte Zeit eines Telegramms sichern
+
+#ifdef DEBUG
+                                     // m_printfunc("O");
+#endif
     master_addr = source_add; // Master Adresse ist Source Adresse
 
-
-    if((function_code&0x30)==FCB_)//Startbedingung
+    if ((function_code & 0x30) == FCB_) // Startbedingung
     {
-      fcv_act=true;
-      fcb_last=true;
+      fcv_act = true;
+      fcb_last = true;
     }
-    else if(true==fcv_act)
+    else if (true == fcv_act)
     {
-      //Adresse wie vorher?
-      if(source_add!=source_add_last)
+      // Adresse wie vorher?
+      if (source_add != source_add_last)
       {
-        //neue Verbindung und damit FCV ungültig
-        fcv_act=false;
+        // neue Verbindung und damit FCV ungültig
+        fcv_act = false;
       }
-      else if((function_code&FCB_)==fcb_last)//FCB ist gleich geblieben
+      else if ((function_code & FCB_) == fcb_last) // FCB ist gleich geblieben
       {
-        //Nachricht wiederholen
-        profibus_TX(&m_pbUartTxBuffer[0], m_pbUartTxCnt);
-        //die Nachricht liegt noch im Speicher
+        // Nachricht wiederholen
+        txFunc(&m_txBuffer[0], m_txBufCnt);
+        // die Nachricht liegt noch im Speicher
       }
-      else//Speichern des neuen FCB
+      else // Speichern des neuen FCB
       {
-        fcb_last=!fcb_last;//das negierte bit speichern, da sonst die vorherige Bedingung angeschlagen hätte
+        fcb_last = !fcb_last; // das negierte bit speichern, da sonst die vorherige Bedingung angeschlagen hätte
       }
     }
-    else//wenn es keine Startbedingung gibt und wir nicht eingeschaltet sind, können wir fcv ausschalten
+    else // wenn es keine Startbedingung gibt und wir nicht eingeschaltet sind, können wir fcv ausschalten
     {
-      fcv_act=false;
+      fcv_act = false;
     }
 
+    // letzte Adresse sichern
+    source_add_last = source_add;
 
-    
-      
-    
-
-
-    //letzte Adresse sichern
-    source_add_last=source_add;
-    
     // Service Access Point erkannt?
     if ((destination_add & 0x80) && (source_add & 0x80))
     {
-      DSAP_data = m_pbUartRxBuffer[7];
-      SSAP_data = m_pbUartRxBuffer[8];
-
+      DSAP_data = m_rxBuffer[7];
+      SSAP_data = m_rxBuffer[8];
 
       // Ablauf Reboot:
       // 1) SSAP 62 -> DSAP 60 (Get Diagnostics Request)
@@ -335,501 +345,497 @@ void CProfibusSlave::profibus_RX (void)
       // 3) SSAP 62 -> DSAP 62 (Check Config Request)
       // 4) SSAP 62 -> DSAP 60 (Get Diagnostics Request)
       // 5) Data Exchange Request (normaler Zyklus)
-      
+
       // Siehe Felser 8/2009 Kap. 4.1
-      //m_printfunc((int)DSAP_data);
+      // m_printfunc((int)DSAP_data);
       switch (DSAP_data)
       {
-        case SAP_SET_SLAVE_ADR: // Set Slave Address (SSAP 62 -> DSAP 55)
-        #ifdef DEBUG
-            //m_printfunc("%d\n",SAP_SET_SLAVE_ADR);
-        #endif
-            // Siehe Felser 8/2009 Kap. 4.2
+      case SAP_SET_SLAVE_ADR: // Set Slave Address (SSAP 62 -> DSAP 55)
+#ifdef DEBUG
+                              // m_printfunc("%d\n",SAP_SET_SLAVE_ADR);
+#endif
+                              // Siehe Felser 8/2009 Kap. 4.2
 
-            // Nur im Zustand "Wait Parameter" (WPRM) moeglich
+        // Nur im Zustand "Wait Parameter" (WPRM) moeglich
 
-            if(WPRM == slave_status)
+        if (DpSlaveState::WPRM == slave_status)
+        {
+          // adresse ändern
+          // new_addr = pb_uart_buffer[9];
+          // IDENT_HIGH_BYTE = m_pbUartRxBuffer[10];
+          // IDENT_LOW_BYTE = m_pbUartRxBuffer[11];
+          // if (pb_uart_buffer[12] & 0x01) adress_aenderung_sperren = true;
+        }
+
+        sendCmd(CmdType::SC, 0, SAP_OFFSET, &m_txBuffer[0], 0);
+
+        break;
+
+      case SAP_GLOBAL_CONTROL: // Global Control Request (SSAP 62 -> DSAP 58)
+#ifdef DEBUG
+                               // m_printfunc("%d\n",SAP_GLOBAL_CONTROL);
+#endif
+                               // Siehe Felser 8/2009 Kap. 4.6.2
+
+        // Wenn "Clear Data" high, dann SPS CPU auf "Stop"
+        if (m_rxBuffer[9] & CLEAR_DATA_)
+        {
+          errorLedOn(); // Status "SPS nicht bereit"
+        }
+        else
+        {
+          errorLedOff(); // Status "SPS OK"
+        }
+
+        // Gruppe berechnen
+        // for (cnt = 0;  pb_uart_buffer[10] != 0; cnt++) pb_uart_buffer[10]>>=1;
+
+        // Wenn Befehl fuer uns ist
+        if ((m_rxBuffer[10] & group) != 0) //(cnt == group)
+        {
+          if (m_rxBuffer[9] & UNFREEZE_)
+          {
+            // FREEZE Zustand loeschen
+            freeze = false;
+            // m_datafunc(NULL,&(m_txBuffer[7]));//outputs,inputs
+          }
+          else if (m_rxBuffer[9] & UNSYNC_)
+          {
+            // SYNC Zustand loeschen
+            sync = false;
+            std::vector<uint8_t> inputDelete;
+            m_datafunc(m_outputReg, inputDelete); // outputs,inputs
+          }
+          else if (m_rxBuffer[9] & FREEZE_)
+          {
+            // Eingaenge nicht mehr neu einlesen
+            if (freeze)
             {
-                //adresse ändern
-                //new_addr = pb_uart_buffer[9];
-                //IDENT_HIGH_BYTE = m_pbUartRxBuffer[10];
-                //IDENT_LOW_BYTE = m_pbUartRxBuffer[11];
-                //if (pb_uart_buffer[12] & 0x01) adress_aenderung_sperren = true;
+              std::vector<uint8_t> outputFreeze;
+              m_datafunc(outputFreeze, m_inputReg); // outputs,inputs
+            }
+            freeze = true;
+          }
+          else if (m_rxBuffer[9] & SYNC_)
+          {
+            // Ausgaenge nur bei SYNC Befehl setzen
+
+            if (sync)
+            {
+              std::vector<uint8_t> inputNotUsed;
+              m_datafunc(m_outputReg, inputNotUsed); // outputs,inputs
+            }
+            sync = true;
+          }
+        }
+
+        break;
+
+      case SAP_SLAVE_DIAGNOSIS: // Get Diagnostics Request (SSAP 62 -> DSAP 60)
+#ifdef DEBUG
+                                // m_printfunc("%d\n",SAP_SLAVE_DIAGNOSIS);
+#endif
+                                // Siehe Felser 8/2009 Kap. 4.5.2
+
+        // Nach dem Erhalt der Diagnose wechselt der DP-Slave vom Zustand
+        // "Power on Reset" (POR) in den Zustand "Wait Parameter" (WPRM)
+
+        // Am Ende der Initialisierung (Zustand "Data Exchange" (DXCHG))
+        // sendet der Master ein zweites mal ein Diagnostics Request um die
+        // korrekte Konfiguration zu pruefen
+        // m_printfunc((int)function_code);
+        // m_printfunc(REQUEST_ + SRD_HIGH);
+        if ((function_code == (REQUEST_ + SRD_HIGH)) ||
+            (function_code == (REQUEST_ + SRD_LOW)))
+        {
+          // Erste Diagnose Abfrage (Aufruf Telegramm)
+          // pb_uart_buffer[4]  = master_addr;                  // Ziel Master (mit SAP Offset)
+          // pb_uart_buffer[5]  = slave_addr + SAP_OFFSET;      // Quelle Slave (mit SAP Offset)
+          // pb_uart_buffer[6]  = SLAVE_DATA;
+          m_txBuffer[7] = SSAP_data;         // Ziel SAP Master
+          m_txBuffer[8] = DSAP_data;         // Quelle SAP Slave
+          m_txBuffer[9] = diagnose_status_1; // Status 1
+          if (DpSlaveState::POR == slave_status)
+          {
+            m_txBuffer[10] = STATUS_2_DEFAULT + PRM_REQ_ + 0x04; // Status 2
+            m_txBuffer[12] = MASTER_ADD_DEFAULT;                 // Adresse Master
+          }
+          else
+          {
+            m_txBuffer[10] = STATUS_2_DEFAULT + 0x04;  // Status 2
+            m_txBuffer[12] = master_addr - SAP_OFFSET; // Adresse Master
+          }
+
+          if (watchdog_act)
+          {
+            m_txBuffer[10] |= WD_ON_;
+          }
+
+          if (freeze_act)
+          {
+            m_txBuffer[10] |= FREEZE_MODE_;
+          }
+
+          if (sync_act)
+          {
+            m_txBuffer[10] |= SYNC_MODE_;
+          }
+
+          m_txBuffer[11] = DIAG_SIZE_OK;       // Status 3
+          m_txBuffer[13] = m_config.identHigh; // Ident high
+          m_txBuffer[14] = m_config.identLow;  // Ident low
+          if (m_diagData.size() > 0)
+          {
+            m_txBuffer[15] = EXT_DIAG_GERAET + m_diagData.size() + 1; // Diagnose (Typ und Anzahl Bytes)
+            for (cnt = 0; cnt < m_diagData.size(); cnt++)
+            {
+              m_txBuffer[16 + cnt] = m_diagData[cnt];
             }
 
+            sendCmd(CmdType::SD2, DATA_LOW, SAP_OFFSET, &m_txBuffer[7], 9 + m_diagData.size());
+          }
+          else
+          {
 
-            profibus_send_CMD(SC, 0, SAP_OFFSET, &m_pbUartTxBuffer[0], 0);
+            sendCmd(CmdType::SD2, DATA_LOW, SAP_OFFSET, &m_txBuffer[7], 8);
+          }
+#ifdef DEBUG
+// m_printfunc("AD");
+#endif
+        }
+
+        // Status aendern
+        if (DpSlaveState::POR == slave_status)
+        {
+          slave_status = DpSlaveState::WPRM;
+#ifdef DEBUG
+          static uint8_t wprmStr[] = "WPRM\n";
+          m_printfunc(wprmStr, 5);
+          // m_printfunc("WPRM");
+#endif
+        }
+
+        break;
+
+      case SAP_SET_PRM: // Set Parameters Request (SSAP 62 -> DSAP 61)
+#ifdef DEBUG
+                        // m_printfunc("%d\n",SAP_SET_PRM);
+#endif
+                        // Siehe Felser 8/2009 Kap. 4.3.1
+
+        // Nach dem Erhalt der Parameter wechselt der DP-Slave vom Zustand
+        // "Wait Parameter" (WPRM) in den Zustand "Wait Configuration" (WCFG)
+        // m_printfunc((int)pb_uart_buffer[13]);
+        // m_printfunc(":");
+        // m_printfunc((int)pb_uart_buffer[14]);
+        // Nur Daten fuer unser Geraet akzeptieren
+        // m_printfunc((int)pb_uart_buffer[13]);
+        // m_printfunc((int)IDENT_HIGH_BYTE);
+        // m_printfunc((int)pb_uart_buffer[14]);
+        // m_printfunc((int)IDENT_LOW_BYTE);
+        if ((m_rxBuffer[13] == m_config.identHigh) && (m_rxBuffer[14] == m_config.identLow))
+        {
+          // pb_uart_buffer[9]  = Befehl
+          // pb_uart_buffer[10] = Watchdog 1
+          // pb_uart_buffer[11] = Watchdog 2
+          // pb_uart_buffer[12] = Min TSDR
+          // pb_uart_buffer[13] = Ident H
+          // pb_uart_buffer[14] = Ident L
+          // pb_uart_buffer[15] = Gruppe
+          // pb_uart_buffer[16] = User Parameter
+
+          // Bei DPV1 Unterstuetzung:
+          // pb_uart_buffer[16] = DPV1 Status 1
+          // pb_uart_buffer[17] = DPV1 Status 2
+          // pb_uart_buffer[18] = DPV1 Status 3
+          // pb_uart_buffer[19] = User Parameter
+
+          if (!(m_rxBuffer[9] & ACTIVATE_WATCHDOG_)) // Watchdog aktivieren
+          {
+            watchdog_act = true;
+          }
+          else
+          {
+            watchdog_act = false;
+          }
+
+          if (!(m_rxBuffer[9] & ACTIVATE_FREEZE_))
+          {
+            freeze_act = true;
+          }
+          else
+          {
+            freeze_act = false;
+          }
+
+          if (!(m_rxBuffer[9] & ACTIVATE_SYNC_))
+          {
+            sync_act = true;
+          }
+          else
+          {
+            sync_act = false;
+          }
+
+          // watchdog1 = m_pbUartRxBuffer[10];
+          // watchdog2 = m_pbUartRxBuffer[11];
+
+          watchdog_time = (unsigned long)m_rxBuffer[10] * (unsigned long)m_rxBuffer[11] * 10;
+
+          if (m_rxBuffer[12] > 10)
+          {
+            minTSDR = m_rxBuffer[12] - 11;
+          }
+          else
+          {
+            minTSDR = 0;
+          }
+
+          m_config.identHigh = m_rxBuffer[13];
+          m_config.identLow = m_rxBuffer[14];
+
+          // User Parameter groe�e = Laenge - DA, SA, FC, DSAP, SSAP, 7 Parameter Bytes
+          User_Para_size = PDU_size - 12;
+
+          // User Parameter einlesen
+          if (m_userPara.size() > 0)
+          {
+            for (cnt = 0; cnt < m_userPara.size(); cnt++)
+              m_userPara[cnt] = m_rxBuffer[16 + cnt];
+          }
+
+          // Gruppe einlesen
+          // for (group = 0; pb_uart_buffer[15] != 0; group++) pb_uart_buffer[15]>>=1;
+
+          group = m_rxBuffer[15]; // wir speichern das gesamte Byte und sparen uns damit die Schleife. Ist unsere Gruppe gemeint, ist die Verundung von Gruppe und Empfang ungleich 0
+
+          // Kurzquittung
+          sendCmd(CmdType::SC, 0, SAP_OFFSET, &m_txBuffer[0], 0);
+          // m_printfunc("Quittung");
+          if (DpSlaveState::WPRM == slave_status)
+          {
+            slave_status = DpSlaveState::WCFG;
+#ifdef DEBUG
+            // m_printfunc("WCFG");
+            static uint8_t wcfgStr[] = "WCFG\n";
+            // HAL_UART_Transmit_IT(&huart1, wcfgStr, 5);
+            m_printfunc(wcfgStr, 5);
+#endif
+          }
+        }
+
+        break;
+
+      case SAP_CHK_CFG: // Check Config Request (SSAP 62 -> DSAP 62)
+#ifdef DEBUG
+                        // m_printfunc("%d\n",SAP_CHK_CFG);
+#endif
+                        // Siehe Felser 8/2009 Kap. 4.4.1
+
+        // Nach dem Erhalt der Konfiguration wechselt der DP-Slave vom Zustand
+        // "Wait Configuration" (WCFG) in den Zustand "Data Exchange" (DXCHG)
+
+        // IO Konfiguration:
+        // Kompaktes Format fuer max. 16/32 Byte IO
+        // Spezielles Format fuer max. 64/132 Byte IO
+
+        Module_cnt = 0;
+        Vendor_Data_size = 0;
+
+        // Je nach PDU Datengroesse mehrere Bytes auswerten
+        // LE/LEr - (DA+SA+FC+DSAP+SSAP) = Anzahl Config Bytes
+        for (cnt = 0; cnt < m_rxBuffer[1] - 5; cnt++)
+        {
+          switch (m_rxBuffer[9 + cnt] & CFG_DIRECTION_)
+          {
+          case CFG_INPUT:
+
+            // Input_Data_size = (pb_uart_buffer[9+cnt] & CFG_BYTE_CNT_) + 1;
+            // if (pb_uart_buffer[9+cnt] & CFG_WIDTH_ & CFG_WORD)
+            //   Input_Data_size = Input_Data_size*2;
+
+            m_moduleData[Module_cnt][0] = (m_rxBuffer[9 + cnt] & CFG_BYTE_CNT_) + 1;
+            if (m_rxBuffer[9 + cnt] & CFG_WIDTH_ & CFG_WORD)
+              m_moduleData[Module_cnt][0] = m_moduleData[Module_cnt][0] * 2;
+
+            Module_cnt++;
 
             break;
 
-        case SAP_GLOBAL_CONTROL: // Global Control Request (SSAP 62 -> DSAP 58)
-        #ifdef DEBUG
-            //m_printfunc("%d\n",SAP_GLOBAL_CONTROL);
-        #endif
-            // Siehe Felser 8/2009 Kap. 4.6.2
+          case CFG_OUTPUT:
 
-            // Wenn "Clear Data" high, dann SPS CPU auf "Stop"
-            if (m_pbUartRxBuffer[9] & CLEAR_DATA_)
-            {
-              errorLedOn();  // Status "SPS nicht bereit"
-            }
-            else
-            {
-              errorLedOff(); // Status "SPS OK"
-            }
-          
-            // Gruppe berechnen
-            //for (cnt = 0;  pb_uart_buffer[10] != 0; cnt++) pb_uart_buffer[10]>>=1;
-            
-            // Wenn Befehl fuer uns ist
-            if ((m_pbUartRxBuffer[10]&group)!=0)//(cnt == group)
-            {
-              if (m_pbUartRxBuffer[9] & UNFREEZE_)
-              {
-                // FREEZE Zustand loeschen
-                freeze=false;
-                //m_datafunc(NULL,&(m_pbUartTxBuffer[7]));//outputs,inputs
-              }
-              else if (m_pbUartRxBuffer[9] & UNSYNC_)
-              {
-                // SYNC Zustand loeschen
-                sync=false;
-                m_datafunc(&(output_register[0]),NULL);//outputs,inputs
-              }
-              else if (m_pbUartRxBuffer[9] & FREEZE_)
-              {
-                // Eingaenge nicht mehr neu einlesen
-                if(freeze)
-                {
-                  m_datafunc(NULL,&(input_register[0]));//outputs,inputs
-                }
-                freeze=true;
-              }
-              else if (m_pbUartRxBuffer[9] & SYNC_)
-              {
-                // Ausgaenge nur bei SYNC Befehl setzen
-                
-                if(sync)
-                {
-                  m_datafunc(&(output_register[0]),NULL);//outputs,inputs
-                }
-                sync=true;
-              }
-            }
+            // Output_Data_size = (pb_uart_buffer[9+cnt] & CFG_BYTE_CNT_) + 1;
+            // if (pb_uart_buffer[9+cnt] & CFG_WIDTH_ & CFG_WORD)
+            //   Output_Data_size = Output_Data_size*2;
+
+            m_moduleData[Module_cnt][1] = (m_rxBuffer[9 + cnt] & CFG_BYTE_CNT_) + 1;
+            if (m_rxBuffer[9 + cnt] & CFG_WIDTH_ & CFG_WORD)
+              m_moduleData[Module_cnt][1] = m_moduleData[Module_cnt][1] * 2;
+
+            Module_cnt++;
 
             break;
 
-        case SAP_SLAVE_DIAGNOSIS: // Get Diagnostics Request (SSAP 62 -> DSAP 60)
-          #ifdef DEBUG
-            //m_printfunc("%d\n",SAP_SLAVE_DIAGNOSIS);
-          #endif
-            // Siehe Felser 8/2009 Kap. 4.5.2
+          case CFG_INPUT_OUTPUT:
 
-            // Nach dem Erhalt der Diagnose wechselt der DP-Slave vom Zustand
-            // "Power on Reset" (POR) in den Zustand "Wait Parameter" (WPRM)
+            // Input_Data_size = (pb_uart_buffer[9+cnt] & CFG_BYTE_CNT_) + 1;
+            // Output_Data_size = (pb_uart_buffer[9+cnt] & CFG_BYTE_CNT_) + 1;
+            // if (pb_uart_buffer[9+cnt] & CFG_WIDTH_ & CFG_WORD)
+            //{
+            //   Input_Data_size = Input_Data_size*2;
+            //   Output_Data_size = Output_Data_size*2;
+            // }
 
-            // Am Ende der Initialisierung (Zustand "Data Exchange" (DXCHG))
-            // sendet der Master ein zweites mal ein Diagnostics Request um die
-            // korrekte Konfiguration zu pruefen
-            //m_printfunc((int)function_code);
-            //m_printfunc(REQUEST_ + SRD_HIGH);
-            if ((function_code == (REQUEST_ + SRD_HIGH))||
-                (function_code == (REQUEST_ + SRD_LOW )))
+            m_moduleData[Module_cnt][0] = (m_rxBuffer[9 + cnt] & CFG_BYTE_CNT_) + 1;
+            m_moduleData[Module_cnt][1] = (m_rxBuffer[9 + cnt] & CFG_BYTE_CNT_) + 1;
+            if (m_rxBuffer[9 + cnt] & CFG_WIDTH_ & CFG_WORD)
             {
-              // Erste Diagnose Abfrage (Aufruf Telegramm)
-              //pb_uart_buffer[4]  = master_addr;                  // Ziel Master (mit SAP Offset)
-              //pb_uart_buffer[5]  = slave_addr + SAP_OFFSET;      // Quelle Slave (mit SAP Offset)
-              //pb_uart_buffer[6]  = SLAVE_DATA;
-              m_pbUartTxBuffer[7]  = SSAP_data;                    // Ziel SAP Master
-              m_pbUartTxBuffer[8]  = DSAP_data;                    // Quelle SAP Slave
-              m_pbUartTxBuffer[9]  = diagnose_status_1;            // Status 1
-              if(POR == slave_status)
-              {
-                m_pbUartTxBuffer[10] = STATUS_2_DEFAULT + PRM_REQ_ + 0x04;  // Status 2
-                m_pbUartTxBuffer[12] = MASTER_ADD_DEFAULT;           // Adresse Master
-              }
-              else
-              {
-                m_pbUartTxBuffer[10] = STATUS_2_DEFAULT + 0x04;             // Status 2
-                m_pbUartTxBuffer[12] = master_addr - SAP_OFFSET;     // Adresse Master
-              }
-
-              if(watchdog_act)
-              {
-                m_pbUartTxBuffer[10] |= WD_ON_; 
-              }
-
-              if(freeze_act)
-              {
-                m_pbUartTxBuffer[10] |= FREEZE_MODE_; 
-              }
-
-              if(sync_act)
-              {
-                m_pbUartTxBuffer[10] |= SYNC_MODE_; 
-              }
-              
-              m_pbUartTxBuffer[11] = DIAG_SIZE_OK;                 // Status 3
-              m_pbUartTxBuffer[13] = m_identHigh;              // Ident high
-              m_pbUartTxBuffer[14] = m_identLow;               // Ident low
-              #if (EXT_DIAG_DATA_SIZE > 0)
-              m_pbUartTxBuffer[15] = EXT_DIAG_GERAET+EXT_DIAG_DATA_SIZE+1; // Diagnose (Typ und Anzahl Bytes)
-              for (cnt = 0; cnt < EXT_DIAG_DATA_SIZE; cnt++)
-              {
-                m_pbUartTxBuffer[16+cnt] = Diag_Data[cnt];
-              }
-              
-              profibus_send_CMD(SD2, DATA_LOW, SAP_OFFSET, &m_pbUartTxBuffer[7], 9 + EXT_DIAG_DATA_SIZE);
-              #else
-              
-              profibus_send_CMD(SD2, DATA_LOW, SAP_OFFSET, &m_pbUartTxBuffer[7], 8);
-              #endif
-              #ifdef DEBUG
-              //m_printfunc("AD");
-              #endif
-              
+              m_moduleData[Module_cnt][0] = m_moduleData[Module_cnt][0] * 2;
+              m_moduleData[Module_cnt][1] = m_moduleData[Module_cnt][1] * 2;
             }
 
-            //Status aendern
-            if(POR == slave_status)
-            {
-              slave_status=WPRM;
-              #ifdef DEBUG
-                static uint8_t wprmStr[] = "WPRM\n";
-                m_printfunc(wprmStr,5);
-                //m_printfunc("WPRM");
-              #endif
-            }
-            
-            break;
-
-        case SAP_SET_PRM: // Set Parameters Request (SSAP 62 -> DSAP 61)
-          #ifdef DEBUG
-            //m_printfunc("%d\n",SAP_SET_PRM);
-          #endif
-            // Siehe Felser 8/2009 Kap. 4.3.1
-
-            // Nach dem Erhalt der Parameter wechselt der DP-Slave vom Zustand
-            // "Wait Parameter" (WPRM) in den Zustand "Wait Configuration" (WCFG)
-            //m_printfunc((int)pb_uart_buffer[13]);
-            //m_printfunc(":");
-            //m_printfunc((int)pb_uart_buffer[14]);
-            // Nur Daten fuer unser Geraet akzeptieren
-            //m_printfunc((int)pb_uart_buffer[13]);
-            //m_printfunc((int)IDENT_HIGH_BYTE);
-            //m_printfunc((int)pb_uart_buffer[14]);
-            //m_printfunc((int)IDENT_LOW_BYTE);
-            if ((m_pbUartRxBuffer[13] == m_identHigh) && (m_pbUartRxBuffer[14] == m_identLow))
-            {
-              //pb_uart_buffer[9]  = Befehl
-              //pb_uart_buffer[10] = Watchdog 1
-              //pb_uart_buffer[11] = Watchdog 2
-              //pb_uart_buffer[12] = Min TSDR
-              //pb_uart_buffer[13] = Ident H
-              //pb_uart_buffer[14] = Ident L
-              //pb_uart_buffer[15] = Gruppe
-              //pb_uart_buffer[16] = User Parameter
-              
-              // Bei DPV1 Unterstuetzung:
-              //pb_uart_buffer[16] = DPV1 Status 1 
-              //pb_uart_buffer[17] = DPV1 Status 2
-              //pb_uart_buffer[18] = DPV1 Status 3
-              //pb_uart_buffer[19] = User Parameter
-
-              if(!(m_pbUartRxBuffer[9]&ACTIVATE_WATCHDOG_))//Watchdog aktivieren
-              {
-                watchdog_act=true;
-              }
-              else
-              {
-                watchdog_act=false;
-              }
-
-              if(!(m_pbUartRxBuffer[9]&ACTIVATE_FREEZE_))
-              {
-                freeze_act=true;
-              }
-              else
-              {
-                freeze_act=false;
-              }
-
-              if(!(m_pbUartRxBuffer[9]&ACTIVATE_SYNC_))
-              {
-                sync_act=true;
-              }
-              else
-              {
-                sync_act=false;
-              }
-
-              //watchdog1 = m_pbUartRxBuffer[10];
-              //watchdog2 = m_pbUartRxBuffer[11];
-
-              watchdog_time=(unsigned long)m_pbUartRxBuffer[10]*(unsigned long)m_pbUartRxBuffer[11]*10;
-
-              if(m_pbUartRxBuffer[12]>10)
-              {
-                minTSDR = m_pbUartRxBuffer[12]-11;
-              }
-              else
-              {
-                minTSDR=0;
-              }
-
-              m_identHigh = m_pbUartRxBuffer[13];
-              m_identLow = m_pbUartRxBuffer[14];
-              
-              // User Parameter groe�e = Laenge - DA, SA, FC, DSAP, SSAP, 7 Parameter Bytes
-              User_Para_size = PDU_size - 12;
-              
-              // User Parameter einlesen
-              #if (USER_PARA_SIZE > 0)
-              for (cnt = 0; cnt < User_Para_size; cnt++) User_Para[cnt] = m_pbUartRxBuffer[16+cnt];
-              #endif
-              
-              // Gruppe einlesen
-              //for (group = 0; pb_uart_buffer[15] != 0; group++) pb_uart_buffer[15]>>=1;
-
-              group=m_pbUartRxBuffer[15];//wir speichern das gesamte Byte und sparen uns damit die Schleife. Ist unsere Gruppe gemeint, ist die Verundung von Gruppe und Empfang ungleich 0
-
-              // Kurzquittung 
-              profibus_send_CMD(SC, 0, SAP_OFFSET, &m_pbUartTxBuffer[0], 0);
-              //m_printfunc("Quittung");
-              if(WPRM == slave_status)
-              {
-                slave_status=WCFG;
-                #ifdef DEBUG
-                //m_printfunc("WCFG");
-                static uint8_t wcfgStr[] = "WCFG\n";
-                //HAL_UART_Transmit_IT(&huart1, wcfgStr, 5);
-                m_printfunc(wcfgStr, 5);
-                #endif
-              }
-              
-            }
-
-            
+            Module_cnt++;
 
             break;
 
-        case SAP_CHK_CFG: // Check Config Request (SSAP 62 -> DSAP 62)
-          #ifdef DEBUG
-            //m_printfunc("%d\n",SAP_CHK_CFG);
-          #endif
-            // Siehe Felser 8/2009 Kap. 4.4.1
+          case CFG_SPECIAL:
 
-            // Nach dem Erhalt der Konfiguration wechselt der DP-Slave vom Zustand
-            // "Wait Configuration" (WCFG) in den Zustand "Data Exchange" (DXCHG)
+            // Spezielles Format
 
-            // IO Konfiguration:
-            // Kompaktes Format fuer max. 16/32 Byte IO
-            // Spezielles Format fuer max. 64/132 Byte IO
-
-            Module_cnt = 0;
-            Vendor_Data_size = 0;
-          
-            // Je nach PDU Datengroesse mehrere Bytes auswerten
-            // LE/LEr - (DA+SA+FC+DSAP+SSAP) = Anzahl Config Bytes
-            for (cnt = 0; cnt < m_pbUartRxBuffer[1] - 5; cnt++)
+            // Herstellerspezifische Bytes vorhanden?
+            if (m_rxBuffer[9 + cnt] & CFG_SP_VENDOR_CNT_)
             {
-              switch (m_pbUartRxBuffer[9+cnt] & CFG_DIRECTION_)
-              {
-                case CFG_INPUT:
-                    
-                    //Input_Data_size = (pb_uart_buffer[9+cnt] & CFG_BYTE_CNT_) + 1;
-                    //if (pb_uart_buffer[9+cnt] & CFG_WIDTH_ & CFG_WORD)
-                    //  Input_Data_size = Input_Data_size*2;
-  
-                    Module_Data_size[Module_cnt][0] = (m_pbUartRxBuffer[9+cnt] & CFG_BYTE_CNT_) + 1;
-                    if (m_pbUartRxBuffer[9+cnt] & CFG_WIDTH_ & CFG_WORD)
-                      Module_Data_size[Module_cnt][0] = Module_Data_size[Module_cnt][0]*2;
-                      
-                    Module_cnt++;
-                    
-                    break;
-  
-                case CFG_OUTPUT:
-  
-                    //Output_Data_size = (pb_uart_buffer[9+cnt] & CFG_BYTE_CNT_) + 1;
-                    //if (pb_uart_buffer[9+cnt] & CFG_WIDTH_ & CFG_WORD)
-                    //  Output_Data_size = Output_Data_size*2;
-  
-                    Module_Data_size[Module_cnt][1] = (m_pbUartRxBuffer[9+cnt] & CFG_BYTE_CNT_) + 1;
-                    if (m_pbUartRxBuffer[9+cnt] & CFG_WIDTH_ & CFG_WORD)
-                      Module_Data_size[Module_cnt][1] = Module_Data_size[Module_cnt][1]*2;
-                    
-                    Module_cnt++;
-                    
-                    break;
-  
-                case CFG_INPUT_OUTPUT:
-  
-                    //Input_Data_size = (pb_uart_buffer[9+cnt] & CFG_BYTE_CNT_) + 1;
-                    //Output_Data_size = (pb_uart_buffer[9+cnt] & CFG_BYTE_CNT_) + 1;
-                    //if (pb_uart_buffer[9+cnt] & CFG_WIDTH_ & CFG_WORD)
-                    //{
-                    //  Input_Data_size = Input_Data_size*2;
-                    //  Output_Data_size = Output_Data_size*2;
-                    //}
-  
-                    Module_Data_size[Module_cnt][0] = (m_pbUartRxBuffer[9+cnt] & CFG_BYTE_CNT_) + 1;
-                    Module_Data_size[Module_cnt][1] = (m_pbUartRxBuffer[9+cnt] & CFG_BYTE_CNT_) + 1;
-                    if (m_pbUartRxBuffer[9+cnt] & CFG_WIDTH_ & CFG_WORD)
-                    {
-                      Module_Data_size[Module_cnt][0] = Module_Data_size[Module_cnt][0]*2;
-                      Module_Data_size[Module_cnt][1] = Module_Data_size[Module_cnt][1]*2;
-                    }
-                    
-                    Module_cnt++;
-                    
-                    break;
-  
-                case CFG_SPECIAL:
-  
-                    // Spezielles Format
-                  
-                    // Herstellerspezifische Bytes vorhanden?
-                    if (m_pbUartRxBuffer[9+cnt] & CFG_SP_VENDOR_CNT_)
-                    {
-                      // Anzahl Herstellerdaten sichern
-                      Vendor_Data_size += m_pbUartRxBuffer[9+cnt] & CFG_SP_VENDOR_CNT_;
-                      
-                      //Vendor_Data[] = pb_uart_buffer[];
-                      
-                      // Anzahl von Gesamtanzahl abziehen
-                      m_pbUartRxBuffer[1] -= m_pbUartRxBuffer[9+cnt] & CFG_SP_VENDOR_CNT_;
-                    }
-                    
-                    // I/O Daten
-                    switch (m_pbUartRxBuffer[9+cnt] & CFG_SP_DIRECTION_)
-                    {
-                      case CFG_SP_VOID: // Leeres Modul (1 Byte)
-                          
-                          Module_Data_size[Module_cnt][0] = 0;
-                          Module_Data_size[Module_cnt][1] = 0;
-                            
-                          Module_cnt++;
-                        
-                          break;
-  
-                      case CFG_SP_INPUT: // Eingang (2 Byte)
-  
-                          //Input_Data_size = (pb_uart_buffer[10+cnt] & CFG_SP_BYTE_CNT_) + 1;
-                          //if (pb_uart_buffer[10+cnt] & CFG_WIDTH_ & CFG_WORD)
-                          //  Input_Data_size = Input_Data_size*2;
-                          
-                          Module_Data_size[Module_cnt][0] = (m_pbUartRxBuffer[10+cnt] & CFG_SP_BYTE_CNT_) + 1;
-                          if (m_pbUartRxBuffer[10+cnt] & CFG_WIDTH_ & CFG_WORD)
-                            Module_Data_size[Module_cnt][0] = Module_Data_size[Module_cnt][0]*2;
-                          
-                          Module_cnt++;
-                          
-                          cnt++;  // Zweites Byte haben wir jetzt schon
-                          
-                          break;
-  
-                      case CFG_SP_OUTPUT: // Ausgang (2 Byte)
-  
-                          //Output_Data_size = (pb_uart_buffer[10+cnt] & CFG_SP_BYTE_CNT_) + 1;
-                          //if (pb_uart_buffer[10+cnt] & CFG_WIDTH_ & CFG_WORD)
-                          //  Output_Data_size = Output_Data_size*2;
-  
-                          Module_Data_size[Module_cnt][1] = (m_pbUartRxBuffer[10+cnt] & CFG_SP_BYTE_CNT_) + 1;
-                          if (m_pbUartRxBuffer[10+cnt] & CFG_WIDTH_ & CFG_WORD)
-                            Module_Data_size[Module_cnt][1] = Module_Data_size[Module_cnt][1]*2;
-                          
-                          Module_cnt++;
-                          
-                          cnt++;  // Zweites Byte haben wir jetzt schon
-                          
-                          break;
-  
-                      case CFG_SP_INPUT_OUTPUT: // Ein- und Ausgang (3 Byte)
-  
-                          // Erst Ausgang...
-                          //Output_Data_size = (pb_uart_buffer[10+cnt] & CFG_SP_BYTE_CNT_) + 1;
-                          //if (pb_uart_buffer[10+cnt] & CFG_WIDTH_ & CFG_WORD)
-                          //  Output_Data_size = Output_Data_size*2;
-                          
-                          // Dann Eingang
-                          //Input_Data_size = (pb_uart_buffer[11+cnt] & CFG_SP_BYTE_CNT_) + 1;
-                          //if (pb_uart_buffer[11+cnt] & CFG_WIDTH_ & CFG_WORD)
-                          //  Input_Data_size = Input_Data_size*2;
-  
-                          // Erst Ausgang...
-                          Module_Data_size[Module_cnt][0] = (m_pbUartRxBuffer[10+cnt] & CFG_SP_BYTE_CNT_) + 1;
-                          if (m_pbUartRxBuffer[10+cnt] & CFG_WIDTH_ & CFG_WORD)
-                            Module_Data_size[Module_cnt][0] = Module_Data_size[Module_cnt][0]*2;
-                          
-                          // Dann Eingang
-                          Module_Data_size[Module_cnt][1] = (m_pbUartRxBuffer[11+cnt] & CFG_SP_BYTE_CNT_) + 1;
-                          if (m_pbUartRxBuffer[11+cnt] & CFG_WIDTH_ & CFG_WORD)
-                            Module_Data_size[Module_cnt][1] = Module_Data_size[Module_cnt][1]*2;
-                          
-                          Module_cnt++;
-                          
-                          cnt += 2;  // Zweites und drittes Bytes haben wir jetzt schon
-                          
-                          break;
-  
-                    } // Switch Ende
-  
-                    break;
-  
-                default:
-  
-                    //Input_Data_size = 0;
-                    //Output_Data_size = 0;
-                      
-                    break;
-  
-              } // Switch Ende
-            } // For Ende
-            
-            if (Vendor_Data_size != 0)
-            {
-              // Auswerten
+              // Anzahl Herstellerdaten sichern
+              Vendor_Data_size += m_rxBuffer[9 + cnt] & CFG_SP_VENDOR_CNT_;
+
+              // Vendor_Data[] = pb_uart_buffer[];
+
+              // Anzahl von Gesamtanzahl abziehen
+              m_rxBuffer[1] -= m_rxBuffer[9 + cnt] & CFG_SP_VENDOR_CNT_;
             }
-            
-            
-            // Bei Fehler -> CFG_FAULT_ in Diagnose senden
-            #if (VENDOR_DATA_SIZE > 0)
-            if (Module_cnt > MODULE_CNT || Vendor_Data_size != VENDOR_DATA_SIZE)
-              diagnose_status_1 |= CFG_FAULT_;
-            #else
-            if (Module_cnt > MODULE_CNT)
-              diagnose_status_1 |= CFG_FAULT_;
-            #endif
-            else
-              diagnose_status_1 &= ~(STATION_NOT_READY_ + CFG_FAULT_);
-            
-            
-            // Kurzquittung 
-            profibus_send_CMD(SC, 0, SAP_OFFSET, &m_pbUartTxBuffer[0], 0);
 
-
-            if(WCFG == slave_status)
+            // I/O Daten
+            switch (m_rxBuffer[9 + cnt] & CFG_SP_DIRECTION_)
             {
-                slave_status=DXCHG;
-                #ifdef DEBUG
-                //m_printfunc("DXCHG");
-                static uint8_t dxchgStr[] = "DXCHG\n";
-                //HAL_UART_Transmit_IT(&huart1, dxchgStr, 6);
-                m_printfunc(dxchgStr, 6);
-                #endif
-            }
+            case CFG_SP_VOID: // Leeres Modul (1 Byte)
+
+              m_moduleData[Module_cnt][0] = 0;
+              m_moduleData[Module_cnt][1] = 0;
+
+              Module_cnt++;
+
+              break;
+
+            case CFG_SP_INPUT: // Eingang (2 Byte)
+
+              // Input_Data_size = (pb_uart_buffer[10+cnt] & CFG_SP_BYTE_CNT_) + 1;
+              // if (pb_uart_buffer[10+cnt] & CFG_WIDTH_ & CFG_WORD)
+              //   Input_Data_size = Input_Data_size*2;
+
+              m_moduleData[Module_cnt][0] = (m_rxBuffer[10 + cnt] & CFG_SP_BYTE_CNT_) + 1;
+              if (m_rxBuffer[10 + cnt] & CFG_WIDTH_ & CFG_WORD)
+                m_moduleData[Module_cnt][0] = m_moduleData[Module_cnt][0] * 2;
+
+              Module_cnt++;
+
+              cnt++; // Zweites Byte haben wir jetzt schon
+
+              break;
+
+            case CFG_SP_OUTPUT: // Ausgang (2 Byte)
+
+              // Output_Data_size = (pb_uart_buffer[10+cnt] & CFG_SP_BYTE_CNT_) + 1;
+              // if (pb_uart_buffer[10+cnt] & CFG_WIDTH_ & CFG_WORD)
+              //   Output_Data_size = Output_Data_size*2;
+
+              m_moduleData[Module_cnt][1] = (m_rxBuffer[10 + cnt] & CFG_SP_BYTE_CNT_) + 1;
+              if (m_rxBuffer[10 + cnt] & CFG_WIDTH_ & CFG_WORD)
+                m_moduleData[Module_cnt][1] = m_moduleData[Module_cnt][1] * 2;
+
+              Module_cnt++;
+
+              cnt++; // Zweites Byte haben wir jetzt schon
+
+              break;
+
+            case CFG_SP_INPUT_OUTPUT: // Ein- und Ausgang (3 Byte)
+
+              // Erst Ausgang...
+              // Output_Data_size = (pb_uart_buffer[10+cnt] & CFG_SP_BYTE_CNT_) + 1;
+              // if (pb_uart_buffer[10+cnt] & CFG_WIDTH_ & CFG_WORD)
+              //  Output_Data_size = Output_Data_size*2;
+
+              // Dann Eingang
+              // Input_Data_size = (pb_uart_buffer[11+cnt] & CFG_SP_BYTE_CNT_) + 1;
+              // if (pb_uart_buffer[11+cnt] & CFG_WIDTH_ & CFG_WORD)
+              //  Input_Data_size = Input_Data_size*2;
+
+              // Erst Ausgang...
+              m_moduleData[Module_cnt][0] = (m_rxBuffer[10 + cnt] & CFG_SP_BYTE_CNT_) + 1;
+              if (m_rxBuffer[10 + cnt] & CFG_WIDTH_ & CFG_WORD)
+                m_moduleData[Module_cnt][0] = m_moduleData[Module_cnt][0] * 2;
+
+              // Dann Eingang
+              m_moduleData[Module_cnt][1] = (m_rxBuffer[11 + cnt] & CFG_SP_BYTE_CNT_) + 1;
+              if (m_rxBuffer[11 + cnt] & CFG_WIDTH_ & CFG_WORD)
+                m_moduleData[Module_cnt][1] = m_moduleData[Module_cnt][1] * 2;
+
+              Module_cnt++;
+
+              cnt += 2; // Zweites und drittes Bytes haben wir jetzt schon
+
+              break;
+
+            } // Switch Ende
 
             break;
 
-        default:
+          default:
 
-            // Unbekannter SAP
-          
+            // Input_Data_size = 0;
+            // Output_Data_size = 0;
+
             break;
+
+          } // Switch Ende
+        }   // For Ende
+
+        if (Vendor_Data_size != 0)
+        {
+          // Auswerten
+        }
+
+        // Bei Fehler -> CFG_FAULT_ in Diagnose senden
+        if (m_VendorData.size() > 0 && (Module_cnt > m_moduleData.size() || Vendor_Data_size != m_VendorData.size()))
+          diagnose_status_1 |= CFG_FAULT_;
+        else if (m_VendorData.size() == 0 && Module_cnt > m_config.moduleCount)
+          diagnose_status_1 |= CFG_FAULT_;
+        else
+          diagnose_status_1 &= ~(STATION_NOT_READY_ + CFG_FAULT_);
+
+        // Kurzquittung
+        sendCmd(CmdType::SC, 0, SAP_OFFSET, &m_txBuffer[0], 0);
+
+        if (DpSlaveState::WCFG == slave_status)
+        {
+          slave_status = DpSlaveState::DXCHG;
+#ifdef DEBUG
+          // m_printfunc("DXCHG");
+          static uint8_t dxchgStr[] = "DXCHG\n";
+          // HAL_UART_Transmit_IT(&huart1, dxchgStr, 6);
+          m_printfunc(dxchgStr, 6);
+#endif
+        }
+
+        break;
+
+      default:
+
+        // Unbekannter SAP
+
+        break;
 
       } // Switch DSAP_data Ende
-
     }
     // Ziel: Slave Adresse, but no SAP
     else if (destination_add == slave_addr)
@@ -838,16 +844,16 @@ void CProfibusSlave::profibus_RX (void)
       // Status Abfrage
       if (function_code == (REQUEST_ + FDL_STATUS))
       {
-        profibus_send_CMD(SD1, FDL_STATUS_OK, 0, &m_pbUartTxBuffer[0], 0);
+        sendCmd(CmdType::SD1, FDL_STATUS_OK, 0, &m_txBuffer[0], 0);
       }
       // Master sendet Ausgangsdaten und verlangt Eingangsdaten (Send and Request Data)
       /*
-      else if (function_code == (REQUEST_ + FCV_ + SRD_HIGH) || 
+      else if (function_code == (REQUEST_ + FCV_ + SRD_HIGH) ||
                function_code == (REQUEST_ + FCV_ + FCB_ + SRD_HIGH))
       {
        */
-       else if (function_code == (REQUEST_ + SRD_HIGH) || 
-               function_code == (REQUEST_ +  SRD_LOW))
+      else if (function_code == (REQUEST_ + SRD_HIGH) ||
+               function_code == (REQUEST_ + SRD_LOW))
       {
 
         /*
@@ -858,9 +864,9 @@ void CProfibusSlave::profibus_RX (void)
           output_register[cnt] = pb_uart_buffer[cnt + 7];
         }
         #endif
-        
 
-        
+
+
         // Daten fuer Master in Buffer schreiben
         #if (INPUT_DATA_SIZE > 0)
         for (cnt = 0; cnt < INPUT_DATA_SIZE; cnt++)
@@ -872,68 +878,78 @@ void CProfibusSlave::profibus_RX (void)
         /*
         if((!sync)||(sync_act&&sync))//set outputs if no sync
         {
-          m_datafunc(&(m_pbUartRxBuffer[7]),NULL);//outputs,inputs
+          m_datafunc(&(m_rxBuffer[7]),NULL);//outputs,inputs
         }
         if((!freeze)||(freeze_act&&freeze))//stops reading inputs if freeze= true
         {
           m_datafunc(NULL,&(m_pbUartTxBuffer[7]));//outputs,inputs
         }
         */
-        
-        if(sync_act && sync)//write data in output_register when sync
+
+        if (sync_act && sync) // write data in output_register when sync
         {
-          for (cnt = 0; cnt < OUTPUT_DATA_SIZE; cnt++)
+          for (cnt = 0; cnt < m_outputReg.size(); cnt++)
           {
-            output_register[cnt] = m_pbUartRxBuffer[cnt + 7];
+            m_outputReg[cnt] = m_rxBuffer[cnt + 7];
           }
         }
-        else//normaler Betrieb
+        else // normaler Betrieb
         {
-          m_datafunc(&(m_pbUartRxBuffer[7]),NULL);//outputs,inputs
-        }
-        
-        
-        if(freeze_act && freeze)//write input_register in telegram when freeze
-        {
-          for (cnt = 0; cnt < INPUT_DATA_SIZE; cnt++)
+          for (cnt = 0; cnt < m_outputReg.size(); cnt++)
           {
-            m_pbUartTxBuffer[cnt + 7] = input_register[cnt];
+            m_outputReg[cnt] = m_rxBuffer[cnt + 7];
+          }
+          std::vector<uint8_t> unUsed;
+          m_datafunc(m_outputReg, unUsed); // outputs,inputs
+        }
+
+        if (freeze_act && freeze) // write input_register in telegram when freeze
+        {
+          for (cnt = 0; cnt < m_inputReg.size(); cnt++)
+          {
+            m_txBuffer[cnt + 7] = m_inputReg[cnt];
           }
         }
-        else//normaler Betrieb
+        else // normaler Betrieb
         {
-          m_datafunc(NULL,&(m_pbUartTxBuffer[7]));//outputs,inputs
+          for (cnt = 0; cnt < m_inputReg.size(); cnt++)
+          {
+            m_txBuffer[cnt + 7] = m_inputReg[cnt];
+          }
+          std::vector<uint8_t> unUsed;
+          m_datafunc(unUsed, m_inputReg); // outputs,inputs
         }
-        
-        
-        
-        #if (INPUT_DATA_SIZE > 0)
-        if (diagnose_status_1 & EXT_DIAG_)
-          profibus_send_CMD(SD2, DATA_HIGH, 0, &m_pbUartTxBuffer[7], 0); // Diagnose Abfrage anfordern
+
+        if (m_inputReg.size() > 0)
+        {
+          if (diagnose_status_1 & EXT_DIAG_)
+            sendCmd(CmdType::SD2, DATA_HIGH, 0, &m_txBuffer[7], 0); // Diagnose Abfrage anfordern
+          else
+            sendCmd(CmdType::SD2, DATA_LOW, 0, &m_txBuffer[7], m_inputReg.size()); // Daten senden
+        }
         else
-          profibus_send_CMD(SD2, DATA_LOW, 0, &m_pbUartTxBuffer[7], INPUT_DATA_SIZE);  // Daten senden
-        #else
-        if (diagnose_status_1 & EXT_DIAG_ || (get_Address() & 0x80))
-          profibus_send_CMD(SD1, DATA_HIGH, 0, &m_pbUartTxBuffer[7], 0); // Diagnose Abfrage anfordern
-        else        
-          profibus_send_CMD(SC, 0, 0, &m_pbUartTxBuffer[7], 0);          // Kurzquittung 
-        #endif
+        {
+          // TODO
+          //  if (diagnose_status_1 & EXT_DIAG_ || (get_Address() & 0x80))
+          //    sendCmd(CmdType::SD1, DATA_HIGH, 0, &m_txBuffer[7], 0); // Diagnose Abfrage anfordern
+          //  else
+          //    sendCmd(CmdType::SC, 0, 0, &m_txBuffer[7], 0); // Kurzquittung
+        }
       }
     }
-    
-  } // Daten gueltig Ende
-  else// Daten nicht gueltig
-  {
-    
-    #ifdef DEBUG
-      //m_printfunc("E\n");
-      static uint8_t dxchgStr[10];
-      snprintf((char*)dxchgStr, 10, "ERROR%lu\n", m_pbUartRxCnt);
-      m_printfunc(dxchgStr, 10);
-    #endif
-    m_pbUartRxCnt = 0;
-  }
 
+  }    // Daten gueltig Ende
+  else // Daten nicht gueltig
+  {
+
+#ifdef DEBUG
+    // m_printfunc("E\n");
+    static uint8_t dxchgStr[10];
+    snprintf((char *)dxchgStr, 10, "ERROR%lu\n", m_rxBufCnt);
+    m_printfunc(dxchgStr, 10);
+#endif
+    m_rxBufCnt = 0;
+  }
 }
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -946,91 +962,88 @@ void CProfibusSlave::profibus_RX (void)
  * \param pdu           Pointer auf Datenfeld (PDU)
  * \param length_pdu    Laenge der reinen PDU ohne DA, SA oder FC
  */
-void CProfibusSlave::profibus_send_CMD (uint8_t type, 
-                        uint8_t function_code, 
-                        uint8_t sap_offset,
-                        volatile uint8_t *pdu, 
-                        uint8_t length_pdu)
+void CProfibusSlave::sendCmd(CmdType type,
+                             uint8_t function_code,
+                             uint8_t sap_offset,
+                             volatile uint8_t *pdu,
+                             uint8_t length_pdu)
 {
   uint8_t length_data = 0;
-  
-    
-  switch(type)
+
+  switch (type)
   {
-    case SD1:
+  case CmdType::SD1:
 
-      m_pbUartTxBuffer[0] = SD1;
-      m_pbUartTxBuffer[1] = master_addr;
-      m_pbUartTxBuffer[2] = slave_addr + sap_offset;
-      m_pbUartTxBuffer[3] = function_code;
-      m_pbUartTxBuffer[4] = calc_checksum(&m_pbUartTxBuffer[1], 3);
-      m_pbUartTxBuffer[5] = ED;
+    m_txBuffer[0] = static_cast<uint8_t>(CmdType::SD1);
+    m_txBuffer[1] = master_addr;
+    m_txBuffer[2] = slave_addr + sap_offset;
+    m_txBuffer[3] = function_code;
+    m_txBuffer[4] = calcChecksum(&m_txBuffer[1], 3);
+    m_txBuffer[5] = static_cast<uint8_t>(CmdType::ED);
 
-      length_data = 6;
+    length_data = 6;
 
-      break;
+    break;
 
-    case SD2:
+  case CmdType::SD2:
 
-      m_pbUartTxBuffer[0] = SD2;
-      m_pbUartTxBuffer[1] = length_pdu + 3;  // Laenge der PDU inkl. DA, SA und FC
-      m_pbUartTxBuffer[2] = length_pdu + 3;
-      m_pbUartTxBuffer[3] = SD2;
-      m_pbUartTxBuffer[4] = master_addr;
-      m_pbUartTxBuffer[5] = slave_addr + sap_offset;
-      m_pbUartTxBuffer[6] = function_code;
-      
-      // Daten werden vor Aufruf der Funktion schon aufgefuellt
+    m_txBuffer[0] = static_cast<uint8_t>(CmdType::SD2);
+    m_txBuffer[1] = length_pdu + 3; // Laenge der PDU inkl. DA, SA und FC
+    m_txBuffer[2] = length_pdu + 3;
+    m_txBuffer[3] = static_cast<uint8_t>(CmdType::SD2);
+    m_txBuffer[4] = master_addr;
+    m_txBuffer[5] = slave_addr + sap_offset;
+    m_txBuffer[6] = function_code;
 
-      m_pbUartTxBuffer[7+length_pdu] = calc_checksum(&m_pbUartTxBuffer[4], length_pdu + 3);
-      m_pbUartTxBuffer[8+length_pdu] = ED;
+    // Daten werden vor Aufruf der Funktion schon aufgefuellt
 
-      length_data = length_pdu + 9;
+    m_txBuffer[7 + length_pdu] = calcChecksum(&m_txBuffer[4], length_pdu + 3);
+    m_txBuffer[8 + length_pdu] = static_cast<uint8_t>(CmdType::ED);
 
-      break;
+    length_data = length_pdu + 9;
 
-    case SD3:
+    break;
 
-      m_pbUartTxBuffer[0] = SD3;
-      m_pbUartTxBuffer[1] = master_addr;
-      m_pbUartTxBuffer[2] = slave_addr + sap_offset;
-      m_pbUartTxBuffer[3] = function_code;
+  case CmdType::SD3:
 
-      // Daten werden vor Aufruf der Funktion schon aufgefuellt
+    m_txBuffer[0] = static_cast<uint8_t>(CmdType::SD3);
+    m_txBuffer[1] = master_addr;
+    m_txBuffer[2] = slave_addr + sap_offset;
+    m_txBuffer[3] = function_code;
 
-      m_pbUartTxBuffer[9] = calc_checksum(&m_pbUartTxBuffer[4], 8);
-      m_pbUartTxBuffer[10] = ED;
+    // Daten werden vor Aufruf der Funktion schon aufgefuellt
 
-      length_data = 11;
+    m_txBuffer[9] = calcChecksum(&m_txBuffer[4], 8);
+    m_txBuffer[10] = static_cast<uint8_t>(CmdType::ED);
 
-      break;
+    length_data = 11;
 
-    case SD4:
+    break;
 
-      m_pbUartTxBuffer[0] = SD4;
-      m_pbUartTxBuffer[1] = master_addr;
-      m_pbUartTxBuffer[2] = slave_addr + sap_offset;
+  case CmdType::SD4:
 
-      length_data = 3;
+    m_txBuffer[0] = static_cast<uint8_t>(CmdType::SD4);
+    m_txBuffer[1] = master_addr;
+    m_txBuffer[2] = slave_addr + sap_offset;
 
-      break;
+    length_data = 3;
 
-    case SC:
+    break;
 
-      m_pbUartTxBuffer[0] = SC;
+  case CmdType::SC:
 
-      length_data = 1;
+    m_txBuffer[0] = static_cast<uint8_t>(CmdType::SC);
 
-      break;
+    length_data = 1;
 
-    default:
+    break;
 
-      break;
+  default:
 
+    break;
   }
-  
-  profibus_TX(&m_pbUartTxBuffer[0], length_data);
 
+  txFunc(&m_txBuffer[0], length_data);
 }
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -1040,30 +1053,29 @@ void CProfibusSlave::profibus_send_CMD (uint8_t type,
  * \param data    Pointer auf Datenfeld
  * \param length  Laenge der Daten
  */
-void CProfibusSlave::profibus_TX (volatile uint8_t *data, uint8_t datalength)
+void CProfibusSlave::txFunc(volatile uint8_t *data, uint8_t datalength)
 {
-// Mit Interrupt
-  //m_printfunc(datalength);
-  
-  m_pbUartTxCnt = datalength;         // Anzahl zu sendender Bytes
-  pb_tx_cnt = 0;          // Zahler fuer gesendete Bytes
+  // Mit Interrupt
+  // m_printfunc(datalength);
 
+  m_txBufCnt = datalength; // Anzahl zu sendender Bytes
+  m_txCnt = 0;             // Zahler fuer gesendete Bytes
 
-  if(0 != minTSDR)
+  if (0 != minTSDR)
   {
-    stream_status = PROFIBUS_WAIT_MINTSDR;
-    setTimerMax(minTSDR*bitTimeINcycle/2);
+    stream_status = StreamStatus::WaitMinTsdr;
+    setTimerMax(minTSDR * m_bitTimeINcycle / 2);
   }
   else
   {
-    setTimerMax(timeoutMaxTxTime); 
-    stream_status = PROFIBUS_SEND_DATA;
-    //activate Send Interrupt
+    setTimerMax(m_timeoutMaxTxTime);
+    stream_status = StreamStatus::SendData;
+    // activate Send Interrupt
     waitForActivTransmission();
     TxRs485Enable();
     activateTxInterrupt();
-    setUartValue(m_pbUartTxBuffer[pb_tx_cnt]); 
-    pb_tx_cnt++;
+    setUartValue(m_txBuffer[m_txCnt]);
+    m_txCnt++;
   }
 }
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1075,11 +1087,11 @@ void CProfibusSlave::profibus_TX (volatile uint8_t *data, uint8_t datalength)
  * \param length  Laenge der Daten
  * \return calc_checksumme
  */
-uint8_t CProfibusSlave::calc_checksum(volatile uint8_t *data, uint8_t length)
+uint8_t CProfibusSlave::calcChecksum(volatile uint8_t *data, uint8_t length)
 {
   uint8_t csum = 0;
 
-  while(length--)
+  while (length--)
   {
     csum += data[length];
   }
@@ -1095,12 +1107,12 @@ uint8_t CProfibusSlave::calc_checksum(volatile uint8_t *data, uint8_t length)
  * \param destination Zieladresse
  * \return true wenn Zieladresse unsere ist, false wenn nicht
  */
-uint8_t CProfibusSlave::check_destination_addr (uint8_t destination)
+uint8_t CProfibusSlave::checkDestinationAdr(uint8_t destination)
 {
-  if (((destination&0x7F) != slave_addr) &&                // Slave
-      ((destination&0x7F) != BROADCAST_ADD))             // Broadcast
+  if (((destination & 0x7F) != slave_addr) &&  // Slave
+      ((destination & 0x7F) != BROADCAST_ADD)) // Broadcast
     return false;
-  
+
   return true;
 }
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1113,27 +1125,27 @@ void CProfibusSlave::interruptPbTx(void)
 {
 
   // Alles gesendet?
-  if (pb_tx_cnt < m_pbUartTxCnt) 
+  if (m_txCnt < m_txBufCnt)
   {
     // TX Buffer fuellen
-    setUartValue(m_pbUartTxBuffer[pb_tx_cnt++]);
-    //m_printfunc(pb_tx_cnt);
+    setUartValue(m_txBuffer[m_txCnt++]);
+    // m_printfunc(m_txCnt);
   }
   else
   {
     TxRs485Disable();
     // Alles gesendet, Interrupt wieder aus
     deactivateTxInterrupt();
-    //clear Flag because we are not writing to buffer
+    // clear Flag because we are not writing to buffer
     clearTxFlag();
-    //m_printfunc("E");
-    #ifdef DEBUG
-    //m_printfunc("a");
+// m_printfunc("E");
+#ifdef DEBUG
+    // m_printfunc("a");
     static uint8_t sendStr = 'a';
     m_printfunc(&sendStr, 1);
-    #endif
+#endif
   }
-  
+
   setTimerCounter(0);
   clearOverflowFlag();
 }
@@ -1145,94 +1157,87 @@ void CProfibusSlave::interruptPbTx(void)
  */
 void CProfibusSlave::interruptTimer(void)
 {
-  
-  
-  // Timer A Stop  
+
+  // Timer A Stop
   stopTimer();
   setTimerCounter(0);
-  
+
   switch (stream_status)
   {
-    case PROFIBUS_WAIT_SYN: // TSYN abgelaufen
-      
-        stream_status = PROFIBUS_WAIT_DATA;        
-        m_pbUartRxCnt = 0;
-        RxRs485Enable();          // Auf Receive umschalten   
-        //activateRxInterrupt();
-        setTimerMax(timeoutMaxSdrTime);
-        // activateRxInterrupt();
-        //RS485_RX_EN          // Auf Receive umschalten  
-        break;
-        
-    case PROFIBUS_WAIT_DATA:  // TSDR abgelaufen aber keine Daten da
-        //ACITVATE_RX_INTERRUPT
-        //RS485_RX_EN          // Auf Receive umschalten
-        break;
-        
-    case PROFIBUS_GET_DATA:   // TSDR abgelaufen und Daten da
+  case StreamStatus::WaitSyn: // TSYN abgelaufen
 
-        //m_printfunc(stream_status);
-        stream_status = PROFIBUS_WAIT_SYN;
-        setTimerMax(timeoutMaxSynTime);
-          
+    stream_status = StreamStatus::WaitData;
+    m_rxBufCnt = 0;
+    RxRs485Enable(); // Auf Receive umschalten
+    // activateRxInterrupt();
+    setTimerMax(m_timeoutMaxSdrTime);
+    // activateRxInterrupt();
+    // RS485_RX_EN          // Auf Receive umschalten
+    break;
 
-        /*
-        for(uint8_t i=0;i<m_pbUartRxCnt;i++)
-        {
-          m_printfunc("%u:",m_pbUartRxBuffer[i]);
-        }
-        m_printfunc("\n");
-        */
-        
-        
-        deactivateRxInterrupt();
-        #ifdef DEBUG
-        //m_printfunc("%u\n",m_pbUartRxCnt);
-        #endif
-        profibus_RX();
-        activateRxInterrupt();
-        
-        
-        break;
-    case PROFIBUS_WAIT_MINTSDR:
+  case StreamStatus::WaitData: // TSDR abgelaufen aber keine Daten da
+    // ACITVATE_RX_INTERRUPT
+    // RS485_RX_EN          // Auf Receive umschalten
+    break;
 
-        //TIMER_MAX=minTSDR*TIME_BIT;
-        setTimerMax(timeoutMaxTxTime); 
-        stream_status = PROFIBUS_SEND_DATA;
-        //activate Send Interrupt
-        waitForActivTransmission();
-        TxRs485Enable();
-        activateTxInterrupt();
-        setUartValue(m_pbUartTxBuffer[pb_tx_cnt]); 
-        pb_tx_cnt++;
-        
-        break;    
-    case PROFIBUS_SEND_DATA:  // Sende-Timeout abgelaufen, wieder auf Empfang gehen
+  case StreamStatus::GetData: // TSDR abgelaufen und Daten da
 
-        stream_status = PROFIBUS_WAIT_SYN;
-        setTimerMax(timeoutMaxSynTime);
-        
-        RxRs485Enable();          // Auf Receive umschalten   
-        
-        break;
-    
-    default:
-      break;
-    
-  }
-  
-  
-  
+    // m_printfunc(stream_status);
+    stream_status = StreamStatus::WaitSyn;
+    setTimerMax(m_timeoutMaxSynTime);
 
-  if(watchdog_act)
-  {
-    if((millis()-last_connection_time)>watchdog_time)
+    /*
+    for(uint8_t i=0;i<m_rxBufCnt;i++)
     {
-      for (int cnt = 0; cnt < OUTPUT_DATA_SIZE; cnt++)
+      m_printfunc("%u:",m_rxBuffer[i]);
+    }
+    m_printfunc("\n");
+    */
+
+    deactivateRxInterrupt();
+#ifdef DEBUG
+// m_printfunc("%u\n",m_rxBufCnt);
+#endif
+    rxFunc();
+    activateRxInterrupt();
+
+    break;
+  case StreamStatus::WaitMinTsdr:
+
+    // TIMER_MAX=minTSDR*TIME_BIT;
+    setTimerMax(m_timeoutMaxTxTime);
+    stream_status = StreamStatus::SendData;
+    // activate Send Interrupt
+    waitForActivTransmission();
+    TxRs485Enable();
+    activateTxInterrupt();
+    setUartValue(m_txBuffer[m_txCnt]);
+    m_txCnt++;
+
+    break;
+  case StreamStatus::SendData: // Sende-Timeout abgelaufen, wieder auf Empfang gehen
+
+    stream_status = StreamStatus::WaitSyn;
+    setTimerMax(m_timeoutMaxSynTime);
+
+    RxRs485Enable(); // Auf Receive umschalten
+
+    break;
+
+  default:
+    break;
+  }
+
+  if (watchdog_act)
+  {
+    if ((millis() - last_connection_time) > watchdog_time)
+    {
+      for (uint8_t cnt = 0; cnt < m_outputReg.size(); cnt++)
       {
-        output_register[cnt] = 0;//sicherer Zustand
+        m_outputReg[cnt] = 0; // sicherer Zustand
       }
-      m_datafunc(&(output_register[0]),NULL);//outputs,inputs
+      std::vector<uint8_t> unUsed;
+      m_datafunc(m_outputReg, unUsed); // outputs,inputs
     }
   }
   // Timer A STIMER_COUNTERT
