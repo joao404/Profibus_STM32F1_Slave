@@ -19,10 +19,10 @@
 
 enum class DpSlaveState : uint8_t
 {
-    POR,  // Power on Reset
-    WPRM, // Wait for Parameter
-    WCFG, // Wait for Config
-    DXCHG // Dataexchange
+    POR = 1,  // Power on Reset
+    WPRM = 2, // Wait for Parameter
+    WCFG = 3, // Wait for Config
+    DXCHG = 4// Dataexchange
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////

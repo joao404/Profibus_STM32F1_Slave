@@ -15,12 +15,10 @@
  */
 
 /* Includes ------------------------------------------------------------------*/
-#include "main.h"
-#include "main.c"
-#include "can.h"
-#include "usart.h"
-#include "gpio.h"
-#include "tim.h"
+#include "stm32hal/main.h"
+#include "stm32hal/usart.h"
+#include "stm32hal/gpio.h"
+#include "stm32hal/tim.h"
 #include "xprintf.h"
 #include "profibus/CProfibusSlaveStm32f1.h"
 #include <vector>
@@ -29,30 +27,37 @@
 CProfibusSlave::Config pbConfig;
 
 void uart_putc(uint8_t d) {
-	HAL_UART_Transmit(&huart1, &d, 1, 1000);
+	HAL_UART_Transmit(&huart1, &d, 1, HAL_MAX_DELAY);
 }
 
 uint8_t uart_getc(void) {
 	uint8_t d;
 
-	(uint8_t)HAL_UART_Receive(&huart1, &d, 1, 1000);
+	(uint8_t)HAL_UART_Receive(&huart1, &d, 1, HAL_MAX_DELAY);
 
 	return d;
 }
 
+// int _write(int file, char *ptr, int len)
+// {
+//   HAL_UART_Transmit(&huart1, (uint8_t*) ptr, len, HAL_MAX_DELAY);
+//   return len;
+// }
+
+// #ifdef __GNUC__
+// #define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
+// #else
+// #define PUTCHAR_PROTOTYPE int fputc(int ch, FILE *f)
+// #endif
+
+// PUTCHAR_PROTOTYPE
+// {
+//   HAL_UART_Transmit(&huart1, (uint8_t *)&ch, 1, HAL_MAX_DELAY);
+//   return ch;
+// }
+
 void DataExchange(std::vector<uint8_t>& outputBuf, std::vector<uint8_t>& inputBuf)
 {
-  /*
-  if(outputbuf!=NULL)
-  {
-    for(int i=0;i<OUTPUT_DATA_SIZE;i++)
-    {
-      Serial.print(outputbuf[i]);
-    }
-    Serial.println();
-  } 
-  */
-
   static int counter = 0;
   if(0 != inputBuf.size())
   {
@@ -79,10 +84,9 @@ int main(void)
   SystemClock_Config();
   MX_GPIO_Init();
   MX_USART1_UART_Init();
+  xprintf("PB Slave Systemfrequenz: %lu\n",HAL_RCC_GetSysClockFreq());
 
-  xprintf("PB Slave Systemfrequenz: %d\n",HAL_RCC_GetSysClockFreq());
-
-  pbConfig.counterFrequency = F_CPU;
+  pbConfig.counterFrequency = HAL_RCC_GetSysClockFreq();
   pbConfig.speed = 500000;
   pbConfig.identHigh = 0x00;
   pbConfig.identLow = 0x2B;
@@ -94,7 +98,7 @@ int main(void)
   pbConfig.externDiagParaSize = 0;
   pbConfig.vendorDataSize = 0;
 
-  pbInterface.init_Profibus(pbConfig, DataExchange, debugOutput);
+  pbInterface.init_Profibus(pbConfig, DataExchange, xprintf);
 
   while (1)
   {

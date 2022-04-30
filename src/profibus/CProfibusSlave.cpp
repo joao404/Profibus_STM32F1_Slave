@@ -30,22 +30,21 @@ CProfibusSlave::~CProfibusSlave()
 /*!
  * \brief Profibus Timer und Variablen initialisieren
  */
-void CProfibusSlave::init_Profibus(Config config, void (*func)(std::vector<uint8_t> &outputbuf, std::vector<uint8_t> &inputbuf), void (*printfunc)(uint8_t *buffer, uint8_t len))
+void CProfibusSlave::init_Profibus(Config &config, void (*func)(std::vector<uint8_t> &outputbuf, std::vector<uint8_t> &inputbuf), void (*printfunc)(const char *, ...))
 {
   m_datafunc = func;
 
-  if (NULL == printfunc)
+  if (nullptr == printfunc)
   {
     configErrorLed();
     errorLedOn();
     return;
   }
 
-  if (NULL == m_datafunc)
+  if (nullptr == m_datafunc)
   {
 #ifdef DEBUG
-    uint8_t debugOutput[] = "No Datafunc";
-    m_printfunc(debugOutput, sizeof(debugOutput));
+    m_printfunc("No Datafunc\n");
 #endif
     return;
   }
@@ -54,29 +53,41 @@ void CProfibusSlave::init_Profibus(Config config, void (*func)(std::vector<uint8
 
   m_config = config;
 
+#ifdef DEBUG
+  m_printfunc("%u\n", m_config.counterFrequency);
+#endif
+
   if (0 == m_config.counterFrequency)
   {
-#ifdef DEBUG
-    uint8_t debugOutput[] = "counterFrequency = 0";
-    m_printfunc(debugOutput, sizeof(debugOutput));
-#endif
     return;
   }
+
+#ifdef DEBUG
+  m_printfunc("speed:%u\n", m_config.speed);
+#endif
 
   if (0 == m_config.speed)
   {
-#ifdef DEBUG
-    uint8_t debugOutput[] = "speed = 0";
-    m_printfunc(debugOutput, sizeof(debugOutput));
-#endif
     return;
   }
 
-  m_bitTimeINcycle = m_config.counterFrequency / m_config.speed;
+  m_bitTimeINcycle = static_cast<uint16_t>(m_config.counterFrequency / m_config.speed);
   m_timeoutMaxSynTime = 33 * m_bitTimeINcycle; // 33 TBit = TSYN
   m_timeoutMaxRxTime = 15 * m_bitTimeINcycle;
   m_timeoutMaxTxTime = 15 * m_bitTimeINcycle;
   m_timeoutMaxSdrTime = 15 * m_bitTimeINcycle; // 15 Tbit = TSDR
+
+#ifdef DEBUG
+  m_printfunc("bufSize:%u\n", m_config.bufSize);
+#endif
+
+  if (0 == m_config.bufSize)
+  {
+    return;
+  }
+
+  m_rxBuffer.reset(new uint8_t[m_config.bufSize]);
+  m_txBuffer.reset(new uint8_t[m_config.bufSize]);
 
   // Variablen initialisieren
   stream_status = StreamStatus::WaitSyn;
@@ -133,13 +144,13 @@ void CProfibusSlave::init_Profibus(Config config, void (*func)(std::vector<uint8
   configErrorLed();
   // Pin Init
   configRs485Pin();
-  // RxRs485Enable();
+  
   // Uart Init
   configUart();
   runTimer();
   activateRxInterrupt();
   // activateTxInterrupt();
-
+  RxRs485Enable();
 #ifdef DEBUG
   // m_printfunc("Client configured with ");
   // m_printfunc("%d\n",slave_addr);
@@ -172,7 +183,7 @@ void CProfibusSlave::interruptPbRx(void)
     m_rxBufCnt++;
 
     // Nicht mehr einlesen als in Buffer reinpasst
-    if (m_rxBufCnt == m_config.bufSize)
+    if (m_rxBufCnt >= m_config.bufSize)
       m_rxBufCnt--;
   }
 
@@ -509,9 +520,7 @@ void CProfibusSlave::rxFunc(void)
         {
           slave_status = DpSlaveState::WPRM;
 #ifdef DEBUG
-          static uint8_t wprmStr[] = "WPRM\n";
-          m_printfunc(wprmStr, 5);
-          // m_printfunc("WPRM");
+          m_printfunc("WPRM\n");
 #endif
         }
 
@@ -616,10 +625,7 @@ void CProfibusSlave::rxFunc(void)
           {
             slave_status = DpSlaveState::WCFG;
 #ifdef DEBUG
-            // m_printfunc("WCFG");
-            static uint8_t wcfgStr[] = "WCFG\n";
-            // HAL_UART_Transmit_IT(&huart1, wcfgStr, 5);
-            m_printfunc(wcfgStr, 5);
+            m_printfunc("WCFG\n");
 #endif
           }
         }
@@ -806,9 +812,9 @@ void CProfibusSlave::rxFunc(void)
         }
 
         // Bei Fehler -> CFG_FAULT_ in Diagnose senden
-        if (m_VendorData.size() > 0 && (Module_cnt > m_moduleData.size() || Vendor_Data_size != m_VendorData.size()))
+        if ((m_VendorData.size() > 0) && (Module_cnt > m_moduleData.size() || Vendor_Data_size != m_VendorData.size()))
           diagnose_status_1 |= CFG_FAULT_;
-        else if (m_VendorData.size() == 0 && Module_cnt > m_config.moduleCount)
+        else if ((m_VendorData.size() == 0) && (Module_cnt > m_config.moduleCount))
           diagnose_status_1 |= CFG_FAULT_;
         else
           diagnose_status_1 &= ~(STATION_NOT_READY_ + CFG_FAULT_);
@@ -820,10 +826,7 @@ void CProfibusSlave::rxFunc(void)
         {
           slave_status = DpSlaveState::DXCHG;
 #ifdef DEBUG
-          // m_printfunc("DXCHG");
-          static uint8_t dxchgStr[] = "DXCHG\n";
-          // HAL_UART_Transmit_IT(&huart1, dxchgStr, 6);
-          m_printfunc(dxchgStr, 6);
+          m_printfunc("DXCHG\n");
 #endif
         }
 
@@ -912,12 +915,12 @@ void CProfibusSlave::rxFunc(void)
         }
         else // normaler Betrieb
         {
+          std::vector<uint8_t> unUsed;
+          m_datafunc(unUsed, m_inputReg); // outputs,inputs
           for (cnt = 0; cnt < m_inputReg.size(); cnt++)
           {
             m_txBuffer[cnt + 7] = m_inputReg[cnt];
           }
-          std::vector<uint8_t> unUsed;
-          m_datafunc(unUsed, m_inputReg); // outputs,inputs
         }
 
         if (m_inputReg.size() > 0)
@@ -943,10 +946,7 @@ void CProfibusSlave::rxFunc(void)
   {
 
 #ifdef DEBUG
-    // m_printfunc("E\n");
-    static uint8_t dxchgStr[10];
-    snprintf((char *)dxchgStr, 10, "ERROR%lu\n", m_rxBufCnt);
-    m_printfunc(dxchgStr, 10);
+    m_printfunc("ERROR%lu\n", m_rxBufCnt);
 #endif
     m_rxBufCnt = 0;
   }
@@ -1140,9 +1140,7 @@ void CProfibusSlave::interruptPbTx(void)
     clearTxFlag();
 // m_printfunc("E");
 #ifdef DEBUG
-    // m_printfunc("a");
-    static uint8_t sendStr = 'a';
-    m_printfunc(&sendStr, 1);
+    m_printfunc("a\n");
 #endif
   }
 
@@ -1186,13 +1184,11 @@ void CProfibusSlave::interruptTimer(void)
     stream_status = StreamStatus::WaitSyn;
     setTimerMax(m_timeoutMaxSynTime);
 
-    /*
-    for(uint8_t i=0;i<m_rxBufCnt;i++)
-    {
-      m_printfunc("%u:",m_rxBuffer[i]);
-    }
-    m_printfunc("\n");
-    */
+    // for(uint8_t i=0;i<m_rxBufCnt;i++)
+    // {
+    //   xprintf("%u", m_rxBuffer[i]);
+    // }
+    // xprintf("\n");
 
     deactivateRxInterrupt();
 #ifdef DEBUG

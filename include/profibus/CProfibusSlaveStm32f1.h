@@ -16,7 +16,7 @@
 
 #pragma once
 #include "profibus/CProfibusSlave.h"
-#include "usart.h"
+#include "stm32hal/usart.h"
 
 class CProfibusSlaveStm32f1 : public CProfibusSlave
 {
@@ -31,10 +31,10 @@ protected:
 
   void stopTimer(void) override { __HAL_TIM_DISABLE(&htim2); }
 
-  void setTimerCounter(uint32_t value) override { __HAL_TIM_SET_COUNTER(&htim2, value); }
+  void setTimerCounter(uint16_t value) override { __HAL_TIM_SET_COUNTER(&htim2, value); }
 
   // void setTimerMax(uint16_t value) override {htim2.Instance->CCR1=value;}
-  void setTimerMax(uint32_t value) override { __HAL_TIM_SET_AUTORELOAD(&htim2, value); }
+  void setTimerMax(uint16_t value) override { __HAL_TIM_SET_AUTORELOAD(&htim2, value); }
 
   // void clearOverflowFlag(void) override {__HAL_TIM_CLEAR_FLAG(&htim2, TIM_FLAG_CC1);}
   void clearOverflowFlag(void) override { __HAL_TIM_CLEAR_FLAG(&htim2, TIM_FLAG_UPDATE); }

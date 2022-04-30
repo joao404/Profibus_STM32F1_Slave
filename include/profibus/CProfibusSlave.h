@@ -57,7 +57,7 @@ public:
     CProfibusSlave();
     virtual ~CProfibusSlave();
 
-    void init_Profibus(Config config , void (*func)(std::vector<uint8_t>& outputbuf, std::vector<uint8_t>& inputbuf), void (*printfunc)(uint8_t *buffer, uint8_t len) = nullptr);
+    void init_Profibus(Config &config , void (*func)(std::vector<uint8_t>& outputbuf, std::vector<uint8_t>& inputbuf), void (*printfunc)(const char *, ...) = nullptr);
 
     void interruptPbRx(void);
 
@@ -78,9 +78,9 @@ protected:
 
     virtual void stopTimer(void) = 0;
 
-    virtual void setTimerCounter(uint32_t value) = 0;
+    virtual void setTimerCounter(uint16_t value) = 0;
 
-    virtual void setTimerMax(uint32_t value) = 0;
+    virtual void setTimerMax(uint16_t value) = 0;
 
     virtual void clearOverflowFlag(void) = 0;
 
@@ -122,7 +122,7 @@ protected:
 
     virtual uint32_t millis(void) = 0;
 
-    void (*m_printfunc)(uint8_t *buffer, uint8_t len) = nullptr;
+    void (*m_printfunc)(const char *, ...) = nullptr;
 
 private:
     void rxFunc(void);
@@ -137,21 +137,21 @@ private:
     // uint8_t m_identHigh = 0x00;
     // uint8_t m_identLow = 0x2B;
 
-    uint32_t m_bitTimeINcycle {0};
-    uint32_t m_timeoutMaxSynTime {0};
-    uint32_t m_timeoutMaxRxTime {0};
-    uint32_t m_timeoutMaxTxTime {0};
-    uint32_t m_timeoutMaxSdrTime {0};
+    uint16_t m_bitTimeINcycle {0};
+    uint16_t m_timeoutMaxSynTime {0};
+    uint16_t m_timeoutMaxRxTime {0};
+    uint16_t m_timeoutMaxTxTime {0};
+    uint16_t m_timeoutMaxSdrTime {0};
 
     std::unique_ptr<volatile uint8_t[]> m_rxBuffer;
     std::unique_ptr<volatile uint8_t[]> m_txBuffer;
-    volatile uint32_t m_rxBufCnt = 0;
-    volatile uint32_t m_txBufCnt = 0;
-    volatile uint32_t m_txCnt = 0;
+    volatile uint32_t m_rxBufCnt{0};
+    volatile uint32_t m_txBufCnt{0};
+    volatile uint32_t m_txCnt{0};
 
     // Profibus Flags und Variablen
-    StreamStatus stream_status = StreamStatus::WaitSyn;
-    DpSlaveState slave_status;
+    StreamStatus stream_status {StreamStatus::WaitSyn};
+    DpSlaveState slave_status{DpSlaveState::POR};
     uint8_t diagnose_status_1;
     uint8_t slave_addr;
     uint8_t master_addr;
