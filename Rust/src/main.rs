@@ -38,33 +38,30 @@ mod app {
     use nb::block;
     use stm32f1xx_hal::{
         gpio::{gpioc, Output, PushPull}, //gpioa , Floating, Input, Alternate},
-        pac::{USART1, USART3},
+        pac::USART1,
         prelude::*,
-        serial::{Config, Event, Rx as serialRx, Serial, Tx as serialTx /*TxDma1, RxDma1,*/},
+        serial::{Config, Rx as serialRx, Serial, Tx as serialTx /*TxDma1, RxDma1,*/},
     };
-    use super::profibus::PbDpSlave;
+    use super::profibus::{PbDpHwInterface, Config as PbDpConfig, PbDpSlave};
     //use rtic::{app};
-    use heapless::{
-        Vec,
-    };
+    // use heapless::{
+    //     Vec,
+    // };
 
     use dwt_systick_monotonic::{DwtSystick, ExtU32};
     const PERIOD: u32 = 56_000_000;
 
     #[monotonic(binds = SysTick, default = true)]
-    type MyMono = DwtSystick<PERIOD>; // 8 MHz
+    type MyMono = DwtSystick<PERIOD>; // 56 MHz
 
     #[local]
     struct Local {
         serial1_rx: serialRx<USART1>,
         serial1_tx: serialTx<USART1>,
-        serial3_rx: serialRx<USART3>,
-        serial3_tx: serialTx<USART3>,
         led: gpioc::PC13<Output<PushPull>>,
     }
     #[shared]
     struct Shared {
-        serial3_rx_queue: Vec<u8, 255>,
         profibus_slave : PbDpSlave,
     }
 
@@ -140,42 +137,51 @@ mod app {
 
         let (mut serial1_tx, serial1_rx) = serial1.split();
 
-        let serial3_rx_queue: Vec<u8, 255> = Vec::new();
-        serial3.listen(Event::Rxne);
-
         let (serial3_tx, serial3_rx) = serial3.split();
-
-        block!(serial1_tx.write(b't')).ok();
         //let serial_dma_rx = serial_rx.with_dma(dma1.5);
         //let serial_dma_tx = serial_tx.with_dma(dma1.4);
 
-        let profibus_slave = PbDpSlave::new();
+        let profibus_config = PbDpConfig::default()
+        .baudrate(500_000_u32)
+        .counter_frequency(56_000_000_u32)
+        .ident_high(0x00)
+        .ident_low(0x2B)
+        .buf_size(45)
+        .input_data_size(2)
+        .output_data_size(5)
+        .module_count(5)
+        .user_para_size(0)
+        .extern_diag_para_size(0)
+        .vendor_data_size(0);
+
+        let tx_en = gpiob.pb1.into_push_pull_output(&mut gpiob.crh);
+        let rx_en = gpiob.pb0.into_push_pull_output(&mut gpiob.crh);
+        let interface = PbDpHwInterface::new(serial3_tx, serial3_rx, tx_en, rx_en);
+
+        let profibus_slave = PbDpSlave::new(profibus_config, interface);
+
+        block!(serial1_tx.write(b't')).ok();
 
         blinky::spawn().unwrap();
 
         (
             Shared {
-                serial3_rx_queue: serial3_rx_queue,
-                profibus_slave : profibus_slave,
+                profibus_slave,
             },
             Local {
-                serial1_rx: serial1_rx,
-                serial1_tx: serial1_tx,
-                serial3_rx: serial3_rx,
-                serial3_tx: serial3_tx,
+                serial1_rx,
+                serial1_tx,
                 led,
             },
             init::Monotonics(mono),
         )
     }
 
-    #[idle(local = [serial1_rx, serial1_tx, serial3_tx], shared = [serial3_rx_queue])]
+    #[idle(local = [serial1_rx, serial1_tx])]
     fn idle(cx: idle::Context) -> ! {
-
-        let mut serial3_rx_queue = cx.shared.serial3_rx_queue;
         //let serial = cx.resources.serial;
         let _serial1_rx = cx.local.serial1_rx;
-        let serial1_tx = cx.local.serial1_tx;
+        let _serial1_tx = cx.local.serial1_tx;
 
         //let buf = singleton!(: [u8; 8] = [0; 8]).unwrap();
         //let (_buf, _rx) = rx_channel.read(buf).wait();
@@ -185,15 +191,6 @@ mod app {
 
             //tx_channel.write(b"The quick brown fox");
             //rx_channel.ReadDma();
-
-
-            serial3_rx_queue.lock(|serial3_rx_queue| {
-                //super::Profibus::handle_message(serial3_rx_queue);
-                for x in serial3_rx_queue.iter() {
-                    block!(serial1_tx.write(*x)).ok();
-                }
-                serial3_rx_queue.clear();
-            });
         }
     }
 
@@ -205,27 +202,29 @@ mod app {
         blinky::spawn_after(1.secs()).unwrap();
     }
 
-    #[task(binds = USART3, priority = 2, local = [serial3_rx], shared = [serial3_rx_queue, profibus_slave])]
+    #[task(binds = USART3, priority = 2, shared = [profibus_slave])]
     fn usart3_rx(cx: usart3_rx::Context) {
-        let mut rx_queue = cx.shared.serial3_rx_queue;
-        let mut profibusSlave = cx.shared.profibus_slave;
+        let mut profibus_slave = cx.shared.profibus_slave;
         // // Echo back received packages with correct priority ordering.
-
-        loop {
-            match cx.local.serial3_rx.read() {
-                Ok(b) => {
-                    rx_queue.lock(|rx_queue| {
-                        rx_queue.push(b).unwrap();
-                    });
-
-                    profibusSlave.lock(|profibusSlave| {
-                        profibusSlave.handle_data(b);
-                    });
-                    
-                    // cx.local.serial3_tx.write(b).unwrap();
-                }
-                Err(_err) => break,
-            }
-        }
+        
+        profibus_slave.lock(|profibus_slave| {
+            let _t = profibus_slave.get_interface().get_rx().is_rx_not_empty();
+            // loop {
+            //     match profibus_slave.get_interface().get_rx().is_rx_not_empty() {
+            //         Ok(b) => {
+            //             rx_queue.lock(|rx_queue| {
+            //                 rx_queue.push(b).unwrap();
+            //             });
+    
+            //             profibusSlave.lock(|profibusSlave| {
+            //                 profibusSlave.handle_data(b);
+            //             });
+                        
+            //             // cx.local.serial3_tx.write(b).unwrap();
+            //         }
+            //         Err(_err) => break,
+            //     }
+            // }
+        });
     }
 }
