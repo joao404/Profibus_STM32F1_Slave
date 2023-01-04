@@ -296,6 +296,10 @@ mod app {
 
         fn wait_for_activ_transmission(&mut self) {}
 
+        fn rx_data_received(&mut self) -> bool {self.rx.is_rx_not_empty()}
+
+        fn tx_data_send(&mut self) -> bool {self.tx.is_tx_empty()}
+
         fn tx_rs485_enable(&mut self) {
             self.rx_en.set_high();
             self.tx_en.set_high();
@@ -316,11 +320,11 @@ mod app {
             self.rx_en.set_high();
         }
 
-        fn get_uart_value(&mut self) -> u8 {
-            0
+        fn get_uart_value(&mut self) -> Result<u8> {
+            self.rx.read()
         }
 
-        fn set_uart_value(&mut self, value: u8) {}
+        fn set_uart_value(&mut self, value: u8) {self.tx.write(value)}
 
         fn config_error_led(&mut self) {}
 
