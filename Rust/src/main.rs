@@ -216,9 +216,19 @@ mod app {
         let mut profibus_slave = cx.shared.profibus_slave;
 
         profibus_slave.lock(|profibus_slave| {
-            profibus_slave.interrupt_handler();
+            profibus_slave.serial_interrupt_handler();
         });
     }
+
+    #[task(binds = TIM2, priority = 2, shared = [profibus_slave])]
+    fn tick(cx: tick::Context) {
+        let mut profibus_slave = cx.shared.profibus_slave;
+
+        profibus_slave.lock(|profibus_slave| {
+            profibus_slave.timer_interrupt_handler();
+        });
+    }
+
 
     pub struct PbDpHwInterface {
         rx: serialRx<USART3>,
@@ -244,13 +254,6 @@ mod app {
                 timer_handler,
             }
         }
-        // pub fn get_rx(&self) -> &serialRx<USART3> {
-        //     &self.rx
-        // }
-
-        // pub fn get_tx(&self) -> &serialTx<USART3> {
-        //     &self.tx
-        // }
     }
 
     impl HwInterface for PbDpHwInterface {
@@ -265,11 +268,11 @@ mod app {
         fn config_uart(&mut self) {}
 
         fn activate_tx_interrupt(&mut self) {
-            self.tx.listen();
+            self.tx.listen_transmission_complete();
         }
 
         fn deactivate_tx_interrupt(&mut self) {
-            self.tx.unlisten();
+            self.tx.unlisten_transmission_complete();
         }
 
         fn activate_rx_interrupt(&mut self) {
@@ -282,7 +285,7 @@ mod app {
 
         fn set_tx_flag(&mut self) {}
 
-        fn clear_tx_flag(&mut self) {}
+        fn clear_tx_flag(&mut self) {self.tx.clear_transmission_complete_interrupt()}
 
         fn clear_rx_flag(&mut self) {}
 

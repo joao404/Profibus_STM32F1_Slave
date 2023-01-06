@@ -4,7 +4,7 @@ pub enum DpSlaveState {
     Por = 1,    // Power on reset
     Wrpm = 2,   // Wait for parameter
     Wcfg = 3,   // Wait for config
-    Ddxchg = 4, // Data exchange
+    Dxchg = 4, // Data exchange
 }
 
 #[derive(PartialEq, Eq)]
@@ -17,15 +17,14 @@ pub enum StreamState {
     SendData,
 }
 
-#[derive(PartialEq, Eq)]
 #[allow(dead_code)]
-pub enum CmdType {
-    SD1 = 0x10, // Telegramm ohne Datenfeld
-    SD2 = 0x68, // Daten Telegramm variabel
-    SD3 = 0xA2, // Daten Telegramm fest
-    SD4 = 0xDC, // Token
-    SC = 0xE5,  // Kurzquittung
-    ED = 0x16,  // Ende
+pub mod cmd_type {
+    pub const SD1: u8 = 0x10; // Telegramm ohne Datenfeld
+    pub const SD2: u8 = 0x68; // Daten Telegramm variabel
+    pub const SD3: u8 = 0xA2; // Daten Telegramm fest
+    pub const SD4: u8 = 0xDC; // Token
+    pub const SC: u8 = 0xE5; // Kurzquittung
+    pub const ED: u8 = 0x16; // Ende
 }
 
 #[allow(dead_code)]

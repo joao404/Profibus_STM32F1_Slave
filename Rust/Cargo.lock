@@ -546,8 +546,7 @@ dependencies = [
 [[package]]
 name = "stm32f1xx-hal"
 version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30845662b9ce46a2ec04da97666a2b32458bee5032bb0452d0caf1536a96a542"
+source = "git+https://github.com/joao404/stm32f1xx-hal#a125d40591f390fdb15032e234abfa515f837ba6"
 dependencies = [
  "bitflags",
  "bxcan 0.7.0",
