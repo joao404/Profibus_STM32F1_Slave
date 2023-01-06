@@ -29,12 +29,11 @@ use panic_halt as _;
 
 //use cortex_m::singleton;
 //use cortex_m_semihosting::{hprintln};
-
 mod profibus;
 
 #[rtic::app(device = stm32f1xx_hal::pac, dispatchers = [I2C1_EV], peripherals = true,)]
 mod app {
-    use super::profibus::{Config as PbDpConfig, HwInterface, PbDpSlave};
+    use crate::profibus::{Config as PbDpConfig, HwInterface, PbDpSlave};
     use nb::block;
     use stm32f1xx_hal::{
         gpio::{gpiob, gpioc, Output, PushPull}, //gpioa , Floating, Input, Alternate},
@@ -44,11 +43,17 @@ mod app {
     };
     //use rtic::{app};
 
-    use heapless::Vec;
-
+    // use heapless::Vec;
 
     use dwt_systick_monotonic::{DwtSystick, ExtU32};
     const PERIOD: u32 = 56_000_000;
+
+    const PROFIBUS_BUF_SIZE: usize = 50;
+    const INPUT_DATA_SIZE: usize = 2;
+    const OUTPUT_DATA_SIZE: usize = 5;
+    const USER_PARA_SIZE: usize = 0;
+    const EXTERN_DIAG_PARA_SIZE: usize = 0;
+    const VENDOR_DATA_SIZE: usize = 0;
 
     #[monotonic(binds = SysTick, default = true)]
     type MyMono = DwtSystick<PERIOD>; // 56 MHz
@@ -61,7 +66,15 @@ mod app {
     }
     #[shared]
     struct Shared {
-        profibus_slave: PbDpSlave<PbDpHwInterface>,
+        profibus_slave: PbDpSlave<
+            PbDpHwInterface,
+            PROFIBUS_BUF_SIZE,
+            INPUT_DATA_SIZE,
+            OUTPUT_DATA_SIZE,
+            USER_PARA_SIZE,
+            EXTERN_DIAG_PARA_SIZE,
+            VENDOR_DATA_SIZE,
+        >,
     }
 
     #[init]
@@ -105,24 +118,24 @@ mod app {
         let serial1_tx_pin = gpioa.pa9.into_alternate_push_pull(&mut gpioa.crh);
         let serial1_rx_pin = gpioa.pa10;
 
-        let mut serial1 = Serial::usart1(
+        let mut serial1 = Serial::new(
             cx.device.USART1,
             (serial1_tx_pin, serial1_rx_pin),
             &mut afio.mapr,
             Config::default().baudrate(115200.bps()),
-            clocks,
+            &clocks,
         );
 
         // USART3
         let serial3_tx_pin = gpiob.pb10.into_alternate_push_pull(&mut gpiob.crh);
         let serial3_rx_pin = gpiob.pb11;
 
-        let serial3 = Serial::usart3(
+        let serial3 = Serial::new(
             cx.device.USART3,
             (serial3_tx_pin, serial3_rx_pin),
             &mut afio.mapr,
             Config::default().baudrate(115200.bps()),
-            clocks,
+            &clocks,
         );
 
         block!(serial1.write(b'S')).ok();
@@ -146,14 +159,7 @@ mod app {
             .ident_high(0x00)
             .ident_low(0x2B)
             .addr(0x0B)
-            .transmit_buffer(&mut Vec::<u8, 255>::new())
-            .buf_size(45)
-            .input_data_size(2)
-            .output_data_size(5)
-            .module_count(5)
-            .user_para_size(0)
-            .extern_diag_para_size(0)
-            .vendor_data_size(0);
+            .module_count(5);
 
         let tx_en = gpiob.pb1.into_push_pull_output(&mut gpiob.crl);
         let rx_en = gpiob.pb0.into_push_pull_output(&mut gpiob.crl);
@@ -204,26 +210,9 @@ mod app {
     #[task(binds = USART3, priority = 2, shared = [profibus_slave])]
     fn usart3_rx(cx: usart3_rx::Context) {
         let mut profibus_slave = cx.shared.profibus_slave;
-        // // Echo back received packages with correct priority ordering.
 
         profibus_slave.lock(|profibus_slave| {
-            let _t = profibus_slave.get_interface();
-            // loop {
-            //     match profibus_slave.get_interface().get_rx().is_rx_not_empty() {
-            //         Ok(b) => {
-            //             rx_queue.lock(|rx_queue| {
-            //                 rx_queue.push(b).unwrap();
-            //             });
-
-            //             profibusSlave.lock(|profibusSlave| {
-            //                 profibusSlave.handle_data(b);
-            //             });
-
-            //             // cx.local.serial3_tx.write(b).unwrap();
-            //         }
-            //         Err(_err) => break,
-            //     }
-            // }
+            profibus_slave.interrupt_handler();
         });
     }
 
@@ -294,11 +283,17 @@ mod app {
 
         fn clear_rx_flag(&mut self) {}
 
-        fn wait_for_activ_transmission(&mut self) {}
+        fn wait_for_activ_transmission(&mut self) {
+            while !self.tx.is_tx_empty() {}
+        }
 
-        fn rx_data_received(&mut self) -> bool {self.rx.is_rx_not_empty()}
+        fn rx_data_received(&mut self) -> bool {
+            self.rx.is_rx_not_empty()
+        }
 
-        fn tx_data_send(&mut self) -> bool {self.tx.is_tx_empty()}
+        fn tx_data_send(&mut self) -> bool {
+            self.tx.is_tx_empty()
+        }
 
         fn tx_rs485_enable(&mut self) {
             self.rx_en.set_high();
@@ -320,11 +315,18 @@ mod app {
             self.rx_en.set_high();
         }
 
-        fn get_uart_value(&mut self) -> Result<u8> {
-            self.rx.read()
+        fn get_uart_value(&mut self) -> Option<u8> {
+            match self.rx.read() {
+                Ok(data) => {
+                    Some(data)
+                }
+                Err(_err) => None,
+            }
         }
 
-        fn set_uart_value(&mut self, value: u8) {self.tx.write(value)}
+        fn set_uart_value(&mut self, value: u8) {
+            self.tx.write(value);
+        }
 
         fn config_error_led(&mut self) {}
 
@@ -333,7 +335,7 @@ mod app {
         fn error_led_off(&mut self) {}
 
         fn millis(&mut self) -> u32 {
-            0
+            0//SysTick()
         }
     }
 }
