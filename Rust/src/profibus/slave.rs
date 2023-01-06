@@ -2,9 +2,9 @@ use heapless::Vec;
 
 use super::hwinterface::HwInterface;
 use super::types::{
-    CmdType, DpSlaveState, Dpv1StatusByte1, Dpv1StatusByte2, Dpv1StatusByte3, FcRequest,
-    FcResponse, SapCheckConfigRequest, SapDiagnoseByte1, SapDiagnoseByte2, SapDiagnoseByte3,
-    SapDiagnoseExt, SapSetparameterRequest, StreamState, SAP,
+    dpv1_status_byte1, dpv1_status_byte2, dpv1_status_byte3, fc_request, fc_response,
+    sap_check_config_request, sap_diagnose_byte1, sap_diagnose_byte2, sap_diagnose_byte3,
+    sap_diagnose_ext, sap_set_parameter_request, CmdType, DpSlaveState, StreamState, SAP,
 };
 
 pub struct Config {
@@ -57,31 +57,37 @@ impl Default for Config {
     }
 }
 
+const SAP_OFFSET : u8 = 128;
+const BROADCAST_ADD :u8 = 127;
+const DEFAULT_ADD :u8 = 126;
+
+#[allow(dead_code)]
 pub struct PbDpSlave<
     T,
-    const BufSize: usize,
-    const InputDataSize: usize,
-    const OutputDataSize: usize,
-    const UserParaSize: usize,
-    const ExternDiagParaSize: usize,
-    const VendorDataSize: usize,
+    const BUF_SIZE: usize,
+    const INPUT_DATA_SIZE: usize,
+    const OUTPUT_DATA_SIZE: usize,
+    const USER_PARA_SIZE: usize,
+    const EXTERN_DIAG_PARA_SIZE: usize,
+    const VENDOR_DATA_SIZE: usize,
 > {
     config: Config,
     interface: T,
-    buffer: Vec<u8, BufSize>,
+    buffer: Vec<u8, BUF_SIZE>,
     slave_state: DpSlaveState,
     stream_state: StreamState,
-    bit_time_in_cycle: u32,
-    timeout_max_syn_time: u32,
-    timeout_max_rx_time: u32,
-    timeout_max_tx_time: u32,
-    timeout_max_sdr_time: u32,
+    timeout_max_syn_time_in_us: u32,
+    timeout_max_rx_time_in_us: u32,
+    timeout_max_tx_time_in_us: u32,
+    timeout_max_sdr_time_in_us: u32,
 
-    input_data: [u8; InputDataSize],
-    output_data: [u8; OutputDataSize],
-    user_para: [u8; UserParaSize],
-    extern_diag_para: [u8; ExternDiagParaSize],
-    vendor_data: [u8; VendorDataSize],
+    timer_timeout_in_us: u32,
+
+    input_data: [u8; INPUT_DATA_SIZE],
+    output_data: [u8; OUTPUT_DATA_SIZE],
+    user_para: [u8; USER_PARA_SIZE],
+    extern_diag_para: [u8; EXTERN_DIAG_PARA_SIZE],
+    vendor_data: [u8; VENDOR_DATA_SIZE],
 
     diagnose_status_1: u8,
     master_addr: u8,
@@ -105,26 +111,26 @@ pub struct PbDpSlave<
 
 impl<
         T,
-        const BufSize: usize,
-        const InputDataSize: usize,
-        const OutputDataSize: usize,
-        const UserParaSize: usize,
-        const ExternDiagParaSize: usize,
-        const VendorDataSize: usize,
+        const BUF_SIZE: usize,
+        const INPUT_DATA_SIZE: usize,
+        const OUTPUT_DATA_SIZE: usize,
+        const USER_PARA_SIZE: usize,
+        const EXTERN_DIAG_PARA_SIZE: usize,
+        const VENDOR_DATA_SIZE: usize,
     >
     PbDpSlave<
         T,
-        BufSize,
-        InputDataSize,
-        OutputDataSize,
-        UserParaSize,
-        ExternDiagParaSize,
-        VendorDataSize,
+        BUF_SIZE,
+        INPUT_DATA_SIZE,
+        OUTPUT_DATA_SIZE,
+        USER_PARA_SIZE,
+        EXTERN_DIAG_PARA_SIZE,
+        VENDOR_DATA_SIZE,
     >
 where
     T: HwInterface,
 {
-    pub fn new(config: Config, interface: T) -> Self {
+    pub fn new(mut config: Config, mut interface: T) -> Self {
         //     if (nullptr == printfunc)
         //     {
         //         interface.config_error_led();
@@ -154,21 +160,20 @@ where
         //     }
 
         if 0 == config.counter_frequency {
-            config.counter_frequency = 56_000_000_u32;
+            config.counter_frequency = 1_000_000_u32;
         }
 
         if 0 == config.baudrate {
             config.baudrate = 500_000_u32;
         }
 
-        let bit_time_in_cycle = config.counter_frequency / config.baudrate;
-        let timeout_max_syn_time = 33 * bit_time_in_cycle; // 33 TBit = TSYN
-        let timeout_max_rx_time = 15 * bit_time_in_cycle;
-        let timeout_max_tx_time = 15 * bit_time_in_cycle;
-        let timeout_max_sdr_time = 15 * bit_time_in_cycle; // 15 Tbit = TSDR
+        let timeout_max_syn_time_in_us = (33 * config.counter_frequency) / config.baudrate; // 33 TBit = TSYN
+        let timeout_max_rx_time_in_us = (15 * config.counter_frequency) / config.baudrate;
+        let timeout_max_tx_time_in_us = (15 * config.counter_frequency) / config.baudrate;
+        let timeout_max_sdr_time_in_us = (15 * config.counter_frequency) / config.baudrate; // 15 Tbit = TSDR
 
-        if (0 == config.addr) || (config.addr > 126) {
-            config.addr = 126;
+        if (0 == config.addr) || (config.addr > DEFAULT_ADD) {
+            config.addr = DEFAULT_ADD;
         }
 
         // let input_data = Vec::<u8, InputDataSize>::new();
@@ -177,16 +182,14 @@ where
         // let extern_diag_para = Vec::<u8, ExternDiagParaSize>::new();
         // let vendor_data = Vec::<u8, VendorDataSize>::new();
 
-        let input_data = [0; InputDataSize];
-        let output_data = [0; OutputDataSize];
-        let user_para = [0; UserParaSize];
-        let extern_diag_para = [0; ExternDiagParaSize];
-        let vendor_data = [0; VendorDataSize];
+        let input_data = [0; INPUT_DATA_SIZE];
+        let output_data = [0; OUTPUT_DATA_SIZE];
+        let user_para = [0; USER_PARA_SIZE];
+        let extern_diag_para = [0; EXTERN_DIAG_PARA_SIZE];
+        let vendor_data = [0; VENDOR_DATA_SIZE];
 
         // Timer init
         interface.config_timer();
-        interface.set_timer_counter(0);
-        interface.set_timer_max(timeout_max_syn_time);
         // LED Status
         interface.config_error_led();
         // Pin Init
@@ -194,28 +197,30 @@ where
 
         // Uart Init
         interface.config_uart();
-        interface.run_timer();
+        interface.run_timer(timeout_max_syn_time_in_us);
         interface.activate_rx_interrupt();
         // activateTxInterrupt();
         interface.tx_rs485_enable();
 
+        let current_time = interface.millis();
+
         Self {
             config,
             interface,
-            buffer: Vec::<u8, BufSize>::new(),
+            buffer: Vec::<u8, BUF_SIZE>::new(),
             slave_state: DpSlaveState::Por,
             stream_state: StreamState::WaitSyn,
-            bit_time_in_cycle,
-            timeout_max_syn_time,
-            timeout_max_rx_time,
-            timeout_max_tx_time,
-            timeout_max_sdr_time,
+            timeout_max_syn_time_in_us,
+            timeout_max_rx_time_in_us,
+            timeout_max_tx_time_in_us,
+            timeout_max_sdr_time_in_us,
+            timer_timeout_in_us: timeout_max_syn_time_in_us,
             input_data,
             output_data,
             user_para,
             extern_diag_para,
             vendor_data,
-            diagnose_status_1: SapDiagnoseByte1::STATION_NOT_READY,
+            diagnose_status_1: sap_diagnose_byte1::STATION_NOT_READY,
             master_addr: 0xFF,
             group: 0,
             source_add_last: 0xFF,
@@ -227,7 +232,7 @@ where
             min_tdsr: 0,
             freeze_act: false,
             sync_act: false,
-            last_connection_time: interface.millis(),
+            last_connection_time: current_time,
             watchdog_time: 0xFFFFFF,
         }
     }
@@ -236,7 +241,7 @@ where
         &self.interface
     }
 
-    pub fn interrupt_handler(&self) {
+    pub fn interrupt_handler(&mut self) {
         if self.interface.rx_data_received() {
             self.rx_interrupt_handler();
         } else if self.interface.tx_data_send() {
@@ -244,18 +249,18 @@ where
         }
     }
 
-    pub fn rx_interrupt_handler(&self) {
+    pub fn rx_interrupt_handler(&mut self) {
         loop {
             match self.interface.get_uart_value() {
                 Some(data) => {
-                    self.handle_rx(data);
+                    self.handle_rx_byte(data);
                 }
                 None => break,
             }
         }
     }
 
-    pub fn handle_rx(&mut self, data: u8) {
+    pub fn handle_rx_byte(&mut self, data: u8) {
         self.buffer.push(data).unwrap();
 
         // if we waited for TSYN, data can be saved
@@ -269,8 +274,7 @@ where
         }
 
         // Profibus Timer ruecksetzen
-        self.interface.set_timer_counter(0);
-        self.interface.clear_overflow_flag();
+        self.interface.run_timer(self.timer_timeout_in_us);
     }
 
     pub fn tx_interrupt_handler(&mut self) {
@@ -287,8 +291,7 @@ where
             }
         }
 
-        self.interface.set_timer_counter(0);
-        self.interface.clear_overflow_flag();
+        self.interface.run_timer(self.timer_timeout_in_us);
     }
 
     pub fn handle_message_timeout(&mut self) {
@@ -296,9 +299,85 @@ where
 
         self.buffer.clear();
     }
-}
 
-//TODO:self.buffer.clear() if something goes wrong
+    pub fn timer_interrupt_handler(&mut self) {
+        // Timer A Stop
+        self.interface.stop_timer();
+
+        match self.stream_state {
+            StreamState::WaitSyn => {
+                self.stream_state = StreamState::WaitData;
+                self.buffer.clear();
+                self.interface.rx_rs485_enable(); // Auf Receive umschalten
+                self.timer_timeout_in_us = self.timeout_max_sdr_time_in_us;
+            }
+            StreamState::GetData => {
+                self.stream_state = StreamState::WaitSyn;
+                self.timer_timeout_in_us = self.timeout_max_syn_time_in_us;
+                self.interface.deactivate_rx_interrupt();
+                self.handle_receive();
+                self.interface.activate_rx_interrupt();
+            }
+            StreamState::WaitMinTsdr => {
+                self.stream_state = StreamState::SendData;
+                self.timer_timeout_in_us = self.timeout_max_tx_time_in_us;
+                self.interface.wait_for_activ_transmission();
+                self.interface.tx_rs485_enable();
+                self.interface.activate_tx_interrupt();
+                match self.buffer.pop() {
+                    Some(data) => self.interface.set_uart_value(data),
+                    None => (),
+                }
+            }
+            StreamState::SendData => {
+                self.stream_state = StreamState::WaitSyn;
+                self.timer_timeout_in_us = self.timeout_max_syn_time_in_us;
+                self.interface.rx_rs485_enable();
+            }
+            _ => (),
+        }
+
+        if self.watchdog_act {
+            if (self.interface.millis() - self.last_connection_time) > self.watchdog_time {
+                self.output_data.fill(0);
+                //TODO:
+                // std::vector<uint8_t> unUsed;
+                // m_datafunc(m_outputReg, unUsed); // outputs,inputs
+            }
+        }
+
+        self.interface.run_timer(self.timer_timeout_in_us);
+    }
+
+    pub fn handle_receive(&mut self)
+    {
+        
+    }
+
+    pub fn calc_checksum(data : Vec<u8, BUF_SIZE>, length : usize) -> u8
+    {
+      let checksum = 0;
+
+      //TODO
+    //   while (length--)
+    //   {
+    //     csum += data[length];
+    //   }
+
+      checksum
+    }
+
+    fn check_destination_addr(&self, destination: u8) -> bool {
+        if ((destination & 0x7F) != self.config.addr) &&  // Slave
+      ((destination & 0x7F) != BROADCAST_ADD)
+        // Broadcast
+        {
+            false
+        } else {
+            true
+        }
+    }
+}
 
 // void CProfibusSlave::rxFunc(void)
 // {
@@ -1216,126 +1295,3 @@ where
 //   return true;
 // }
 // ///////////////////////////////////////////////////////////////////////////////////////////////////
-
-// ///////////////////////////////////////////////////////////////////////////////////////////////////
-// /*!
-//  * \brief ISR UART Transmit
-//  */
-// void CProfibusSlave::interruptPbTx(void)
-// {
-
-//   // Alles gesendet?
-//   if (m_txCnt < m_txBufCnt)
-//   {
-//     // TX Buffer fuellen
-//     setUartValue(m_txBuffer[m_txCnt++]);
-//     // m_printfunc(m_txCnt);
-//   }
-//   else
-//   {
-//     TxRs485Disable();
-//     // Alles gesendet, Interrupt wieder aus
-//     deactivateTxInterrupt();
-//     // clear Flag because we are not writing to buffer
-//     clearTxFlag();
-// // m_printfunc("E");
-// #ifdef DEBUG
-//     m_printfunc("a\n");
-// #endif
-//   }
-
-//   setTimerCounter(0);
-//   clearOverflowFlag();
-// }
-// ///////////////////////////////////////////////////////////////////////////////////////////////////
-
-// ///////////////////////////////////////////////////////////////////////////////////////////////////
-// /*!
-//  * \brief ISR TIMER
-//  */
-// void CProfibusSlave::interruptTimer(void)
-// {
-
-//   // Timer A Stop
-//   stopTimer();
-//   setTimerCounter(0);
-
-//   switch (stream_status)
-//   {
-//   case StreamStatus::WaitSyn: // TSYN abgelaufen
-
-//     stream_status = StreamStatus::WaitData;
-//     m_rxBufCnt = 0;
-//     RxRs485Enable(); // Auf Receive umschalten
-//     // activateRxInterrupt();
-//     setTimerMax(m_timeoutMaxSdrTime);
-//     // activateRxInterrupt();
-//     // RS485_RX_EN          // Auf Receive umschalten
-//     break;
-
-//   case StreamStatus::WaitData: // TSDR abgelaufen aber keine Daten da
-//     // ACITVATE_RX_INTERRUPT
-//     // RS485_RX_EN          // Auf Receive umschalten
-//     break;
-
-//   case StreamStatus::GetData: // TSDR abgelaufen und Daten da
-
-//     // m_printfunc(stream_status);
-//     stream_status = StreamStatus::WaitSyn;
-//     setTimerMax(m_timeoutMaxSynTime);
-
-//     // for(uint8_t i=0;i<m_rxBufCnt;i++)
-//     // {
-//     //   xprintf("%u", m_rxBuffer[i]);
-//     // }
-//     // xprintf("\n");
-
-//     deactivateRxInterrupt();
-// #ifdef DEBUG
-// // m_printfunc("%u\n",m_rxBufCnt);
-// #endif
-//     rxFunc();
-//     activateRxInterrupt();
-
-//     break;
-//   case StreamStatus::WaitMinTsdr:
-
-//     // TIMER_MAX=minTSDR*TIME_BIT;
-//     setTimerMax(m_timeoutMaxTxTime);
-//     stream_status = StreamStatus::SendData;
-//     // activate Send Interrupt
-//     waitForActivTransmission();
-//     TxRs485Enable();
-//     activateTxInterrupt();
-//     setUartValue(m_txBuffer[m_txCnt]);
-//     m_txCnt++;
-
-//     break;
-//   case StreamStatus::SendData: // Sende-Timeout abgelaufen, wieder auf Empfang gehen
-
-//     stream_status = StreamStatus::WaitSyn;
-//     setTimerMax(m_timeoutMaxSynTime);
-
-//     RxRs485Enable(); // Auf Receive umschalten
-
-//     break;
-
-//   default:
-//     break;
-//   }
-
-//   if (watchdog_act)
-//   {
-//     if ((millis() - last_connection_time) > watchdog_time)
-//     {
-//       for (uint8_t cnt = 0; cnt < m_outputReg.size(); cnt++)
-//       {
-//         m_outputReg[cnt] = 0; // sicherer Zustand
-//       }
-//       std::vector<uint8_t> unUsed;
-//       m_datafunc(m_outputReg, unUsed); // outputs,inputs
-//     }
-//   }
-//   // Timer A STIMER_COUNTERT
-//   runTimer();
-// }

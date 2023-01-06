@@ -1,13 +1,11 @@
+// use crate::Duration;
+
 pub trait HwInterface {
     fn config_timer(&mut self) {}
 
-    fn run_timer(&mut self) {}
+    fn run_timer(&mut self, _timeout_in_us: u32) {}
 
     fn stop_timer(&mut self) {}
-
-    fn set_timer_counter(&mut self, _value: u16) {}
-
-    fn set_timer_max(&mut self, _value: u16) {}
 
     fn clear_overflow_flag(&mut self) {}
 

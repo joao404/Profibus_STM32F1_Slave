@@ -1,9 +1,9 @@
 pub use hwinterface::HwInterface;
 pub use slave::{Config, PbDpSlave};
 pub use types::{
-    CmdType, DpSlaveState, Dpv1StatusByte1, Dpv1StatusByte2, Dpv1StatusByte3, FcRequest,
-    FcResponse, SapCheckConfigRequest, SapDiagnoseByte1, SapDiagnoseByte2, SapDiagnoseByte3,
-    SapDiagnoseExt, SapSetparameterRequest, StreamState, SAP,
+    CmdType, DpSlaveState, dpv1_status_byte1, dpv1_status_byte2, dpv1_status_byte3, fc_request,
+    fc_response, sap_check_config_request, sap_diagnose_byte1, sap_diagnose_byte2, sap_diagnose_byte3,
+    sap_diagnose_ext, sap_set_parameter_request, StreamState, SAP,
 };
 
 pub mod hwinterface;

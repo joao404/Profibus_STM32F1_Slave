@@ -1,4 +1,5 @@
 #[derive(PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum DpSlaveState {
     Por = 1,    // Power on reset
     Wrpm = 2,   // Wait for parameter
@@ -7,6 +8,7 @@ pub enum DpSlaveState {
 }
 
 #[derive(PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum StreamState {
     WaitSyn,
     WaitData,
@@ -16,6 +18,7 @@ pub enum StreamState {
 }
 
 #[derive(PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum CmdType {
     SD1 = 0x10, // Telegramm ohne Datenfeld
     SD2 = 0x68, // Daten Telegramm variabel
@@ -25,7 +28,8 @@ pub enum CmdType {
     ED = 0x16,  // Ende
 }
 
-pub mod FcRequest {
+#[allow(dead_code)]
+pub mod fc_request {
     pub const FDL_STATUS: u8 = 0x09; // SPS: Status Abfrage
     pub const SDR_LOW: u8 = 0x0C; // SPS: Ausgaenge setzen, Eingaenge lesen
     pub const SDR_HIGH: u8 = 0x0D; // SPS: Ausgaenge setzen, Eingaenge lesen
@@ -34,13 +38,15 @@ pub mod FcRequest {
     pub const REQUEST: u8 = 0x40;
 }
 
-pub mod FcResponse {
+#[allow(dead_code)]
+pub mod fc_response {
     pub const FDL_STATUS_OK: u8 = 0x00; // SLA: OK
     pub const DATA_LOW: u8 = 0x08; // SLA: (Data low) Daten Eingaenge senden
     pub const DATA_HIGH: u8 = 0x0A; // SLA: (Data high) Diagnose anstehend
 }
 
 #[derive(PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum SAP {
     SetSlaveAdr = 55,     // Master setzt Slave Adresse, Slave Anwortet mit SC
     RdInp = 56,           // Master fordert Input Daten, Slave sendet Input Daten
@@ -52,7 +58,8 @@ pub enum SAP {
     ChkCfg = 62,          // Master sendet Konfuguration, Slave sendet SC
 }
 
-pub mod SapDiagnoseByte1 {
+#[allow(dead_code)]
+pub mod sap_diagnose_byte1 {
     pub const STATUS_1_DEFAULT: u8 = 0x00;
     pub const STATION_NOT_EXISTENT: u8 = 0x01;
     pub const STATION_NOT_READY: u8 = 0x02;
@@ -64,7 +71,8 @@ pub mod SapDiagnoseByte1 {
     pub const MASTER_LOCK: u8 = 0x80;
 }
 
-pub mod SapDiagnoseByte2 {
+#[allow(dead_code)]
+pub mod sap_diagnose_byte2 {
     pub const STATUS_2_DEFAULT: u8 = 0x04;
     pub const PRM_REQ: u8 = 0x01;
     pub const STAT_DIAG: u8 = 0x02;
@@ -75,12 +83,14 @@ pub mod SapDiagnoseByte2 {
     pub const DEACTIVATED: u8 = 0x80;
 }
 
-pub mod SapDiagnoseByte3 {
+#[allow(dead_code)]
+pub mod sap_diagnose_byte3 {
     pub const DIAG_SIZE_OK: u8 = 0x00;
     pub const DIAG_SIZE_ERROR: u8 = 0x80;
 }
 
-pub mod SapDiagnoseExt {
+#[allow(dead_code)]
+pub mod sap_diagnose_ext {
     pub const EXT_DIAG_TYPE: u8 = 0xC0; // Bit 6-7 ist Diagnose Typ
     pub const EXT_DIAG_BYTE_CNT: u8 = 0x3F; // Bit 0-5 sind Anzahl der Diagnose Bytes
 
@@ -89,7 +99,8 @@ pub mod SapDiagnoseExt {
     pub const EXT_DIAG_KANAL: u8 = 0x80; // Wenn Bit 7 und 6 = 10, dann Kanalbezogen
 }
 
-pub mod SapSetparameterRequest {
+#[allow(dead_code)]
+pub mod sap_set_parameter_request {
     pub const LOCK_SLAVE: u8 = 0x80; // Slave fuer andere Master gesperrt
     pub const UNLOCK_SLAVE: u8 = 0x40; // Slave fuer andere Master freigegeben
     pub const ACTIVATE_SYNC: u8 = 0x20;
@@ -97,14 +108,16 @@ pub mod SapSetparameterRequest {
     pub const ACTIVATE_WATCHDOG: u8 = 0x08;
 }
 
-pub mod Dpv1StatusByte1 {
+#[allow(dead_code)]
+pub mod dpv1_status_byte1 {
     pub const DPV1_MODE: u8 = 0x80;
     pub const FAIL_SAVE_MODE: u8 = 0x40;
     pub const PUBLISHER_MODE: u8 = 0x20;
     pub const WATCHDOG_TB_1MS: u8 = 0x04;
 }
 
-pub mod Dpv1StatusByte2 {
+#[allow(dead_code)]
+pub mod dpv1_status_byte2 {
     pub const PULL_PLUG_ALARM: u8 = 0x80;
     pub const PROZESS_ALARM: u8 = 0x40;
     pub const DIAGNOSE_ALARM: u8 = 0x20;
@@ -114,13 +127,15 @@ pub mod Dpv1StatusByte2 {
     pub const CHECK_CONFIG_MODE: u8 = 0x01;
 }
 
-pub mod Dpv1StatusByte3 {
+#[allow(dead_code)]
+pub mod dpv1_status_byte3 {
     pub const PARAMETER_CMD_ON: u8 = 0x80;
     pub const ISOCHRON_MODE_ON: u8 = 0x10;
     pub const PARAMETER_BLOCK: u8 = 0x08;
 }
 
-pub mod SapCheckConfigRequest {
+#[allow(dead_code)]
+pub mod sap_check_config_request {
     pub const CFG_DIRECTION: u8 = 0x30; // Bit 4-5 ist Richtung. 01 =  Eingang, 10 = Ausgang, 11 = Eingang/Ausgang
     pub const CFG_INPUT: u8 = 0x10; // Eingang
     pub const CFG_OUTPUT: u8 = 0x20; // Ausgang

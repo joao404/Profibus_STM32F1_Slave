@@ -37,9 +37,10 @@ mod app {
     use nb::block;
     use stm32f1xx_hal::{
         gpio::{gpiob, gpioc, Output, PushPull}, //gpioa , Floating, Input, Alternate},
-        pac::{USART1, USART3},
+        pac::{USART1, USART3, TIM2},
         prelude::*,
         serial::{Config, Rx as serialRx, Serial, Tx as serialTx /*TxDma1, RxDma1,*/},
+        timer::{CounterUs, Event},
     };
     //use rtic::{app};
 
@@ -153,9 +154,12 @@ mod app {
         //let serial_dma_rx = serial_rx.with_dma(dma1.5);
         //let serial_dma_tx = serial_tx.with_dma(dma1.4);
 
+        let mut timer = cx.device.TIM2.counter_us(&clocks);
+        timer.listen(Event::Update);
+
         let profibus_config = PbDpConfig::default()
             .baudrate(500_000_u32)
-            .counter_frequency(56_000_000_u32)
+            .counter_frequency(1_000_000_u32)
             .ident_high(0x00)
             .ident_low(0x2B)
             .addr(0x0B)
@@ -163,7 +167,7 @@ mod app {
 
         let tx_en = gpiob.pb1.into_push_pull_output(&mut gpiob.crl);
         let rx_en = gpiob.pb0.into_push_pull_output(&mut gpiob.crl);
-        let interface = PbDpHwInterface::new(serial3_tx, serial3_rx, tx_en, rx_en);
+        let interface = PbDpHwInterface::new(serial3_tx, serial3_rx, tx_en, rx_en, timer);
 
         let profibus_slave = PbDpSlave::new(profibus_config, interface);
 
@@ -221,6 +225,7 @@ mod app {
         tx: serialTx<USART3>,
         rx_en: gpiob::PB0<Output<PushPull>>,
         tx_en: gpiob::PB1<Output<PushPull>>,
+        timer_handler: CounterUs<TIM2>,
     }
 
     impl PbDpHwInterface {
@@ -229,12 +234,14 @@ mod app {
             rx: serialRx<USART3>,
             tx_en: gpiob::PB1<Output<PushPull>>,
             rx_en: gpiob::PB0<Output<PushPull>>,
+            timer_handler: CounterUs<TIM2>,
         ) -> Self {
             PbDpHwInterface {
                 rx,
                 tx,
                 tx_en,
                 rx_en,
+                timer_handler,
             }
         }
         // pub fn get_rx(&self) -> &serialRx<USART3> {
@@ -249,15 +256,11 @@ mod app {
     impl HwInterface for PbDpHwInterface {
         fn config_timer(&mut self) {}
 
-        fn run_timer(&mut self) {}
+        fn run_timer(&mut self, _timeout_in_us: u32) { self.timer_handler.start(_timeout_in_us.micros()).unwrap();}
 
-        fn stop_timer(&mut self) {}
+        fn stop_timer(&mut self) {self.timer_handler.cancel().unwrap_or_default()}
 
-        fn set_timer_counter(&mut self, value: u16) {}
-
-        fn set_timer_max(&mut self, value: u16) {}
-
-        fn clear_overflow_flag(&mut self) {}
+        fn clear_overflow_flag(&mut self) {self.timer_handler.clear_interrupt(Event::Update);}
 
         fn config_uart(&mut self) {}
 
@@ -324,8 +327,8 @@ mod app {
             }
         }
 
-        fn set_uart_value(&mut self, value: u8) {
-            self.tx.write(value);
+        fn set_uart_value(&mut self, _value: u8) {
+            self.tx.write(_value).unwrap_or_default();
         }
 
         fn config_error_led(&mut self) {}
