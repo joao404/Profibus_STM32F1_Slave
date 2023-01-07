@@ -60,25 +60,26 @@ impl Default for Config {
 const SAP_OFFSET: u8 = 128;
 const BROADCAST_ADD: u8 = 127;
 const DEFAULT_ADD: u8 = 126;
+const MASTER_ADD_DEFAULT : u8 = 0xFF;
 
 #[allow(dead_code)]
 pub struct PbDpSlave<
     T,
-    const BUF_len: ulen,
-    const INPUT_DATA_len: ulen,
-    const OUTPUT_DATA_len: ulen,
-    const USER_PARA_len: ulen,
-    const EXTERN_DIAG_PARA_len: ulen,
-    const VENDOR_DATA_len: ulen,
+    const BUF_SIZE: usize,
+    const INPUT_DATA_SIZE: usize,
+    const OUTPUT_DATA_SIZE: usize,
+    const USER_PARA_SIZE: usize,
+    const EXTERN_DIAG_PARA_SIZE: usize,
+    const VENDOR_DATA_SIZE: usize,
 > {
     config: Config,
     interface: T,
-    tx_buffer: [u8; BUF_len],
-    rx_buffer: [u8; BUF_len],
+    tx_buffer: [u8; BUF_SIZE],
+    rx_buffer: [u8; BUF_SIZE],
 
-    rx_len : ulen,
-    tx_len : ulen,
-    tx_pos : ulen,
+    rx_len : usize,
+    tx_len : usize,
+    tx_pos : usize,
 
     slave_state: DpSlaveState,
     stream_state: StreamState,
@@ -89,11 +90,13 @@ pub struct PbDpSlave<
 
     timer_timeout_in_us: u32,
 
-    input_data: [u8; INPUT_DATA_len],
-    output_data: [u8; OUTPUT_DATA_len],
-    user_para: [u8; USER_PARA_len],
-    extern_diag_para: [u8; EXTERN_DIAG_PARA_len],
-    vendor_data: [u8; VENDOR_DATA_len],
+    data_handling: impl Fn(&[u8], &[u8]),
+
+    input_data: [u8; INPUT_DATA_SIZE],
+    output_data: [u8; OUTPUT_DATA_SIZE],
+    user_para: [u8; USER_PARA_SIZE],
+    extern_diag_para: [u8; EXTERN_DIAG_PARA_SIZE],
+    vendor_data: [u8; VENDOR_DATA_SIZE],
 
     diagnose_status_1: u8,
     master_addr: u8,
@@ -106,7 +109,7 @@ pub struct PbDpSlave<
     freeze: bool,
     sync: bool,
     watchdog_act: bool,
-    min_tdsr: u8,
+    min_tsrd: u8,
 
     freeze_act: bool,
     sync_act: bool,
@@ -117,53 +120,26 @@ pub struct PbDpSlave<
 
 impl<
         T,
-        const BUF_len: ulen,
-        const INPUT_DATA_len: ulen,
-        const OUTPUT_DATA_len: ulen,
-        const USER_PARA_len: ulen,
-        const EXTERN_DIAG_PARA_len: ulen,
-        const VENDOR_DATA_len: ulen,
+        const BUF_SIZE: usize,
+        const INPUT_DATA_SIZE: usize,
+        const OUTPUT_DATA_SIZE: usize,
+        const USER_PARA_SIZE: usize,
+        const EXTERN_DIAG_PARA_SIZE: usize,
+        const VENDOR_DATA_SIZE: usize,
     >
     PbDpSlave<
         T,
-        BUF_len,
-        INPUT_DATA_len,
-        OUTPUT_DATA_len,
-        USER_PARA_len,
-        EXTERN_DIAG_PARA_len,
-        VENDOR_DATA_len,
+        BUF_SIZE,
+        INPUT_DATA_SIZE,
+        OUTPUT_DATA_SIZE,
+        USER_PARA_SIZE,
+        EXTERN_DIAG_PARA_SIZE,
+        VENDOR_DATA_SIZE,
     >
 where
     T: HwInterface,
 {
-    pub fn new(mut config: Config, mut interface: T) -> Self {
-        //     if (nullptr == printfunc)
-        //     {
-        //         interface.config_error_led();
-        //         interface.error_led_on();
-        //       return;
-        //     }
-
-        //     if (nullptr == m_datafunc)
-        //     {
-        //   #ifdef DEBUG
-        //       m_printfunc("No Datafunc\n");
-        //   #endif
-        //       return;
-        //     }
-
-        // m_printfunc = printfunc;
-
-        // m_config = config;
-
-        //   #ifdef DEBUG
-        //     m_printfunc("%u\n", m_config.counterFrequency);
-        //   #endif
-
-        //     if (0 == m_config.counterFrequency)
-        //     {
-        //       return;
-        //     }
+    pub fn new(mut config: Config, mut interface: T, data_handling: impl Fn(&[u8], &[u8])) -> Self {
 
         if 0 == config.counter_frequency {
             config.counter_frequency = 1_000_000_u32;
@@ -188,11 +164,11 @@ where
         // let extern_diag_para = Vec::<u8, ExternDiagParalen>::new();
         // let vendor_data = Vec::<u8, VendorDatalen>::new();
 
-        let input_data = [0; INPUT_DATA_len];
-        let output_data = [0; OUTPUT_DATA_len];
-        let user_para = [0; USER_PARA_len];
-        let extern_diag_para = [0; EXTERN_DIAG_PARA_len];
-        let vendor_data = [0; VENDOR_DATA_len];
+        let input_data = [0; INPUT_DATA_SIZE];
+        let output_data = [0; OUTPUT_DATA_SIZE];
+        let user_para = [0; USER_PARA_SIZE];
+        let extern_diag_para = [0; EXTERN_DIAG_PARA_SIZE];
+        let vendor_data = [0; VENDOR_DATA_SIZE];
 
         // Timer init
         interface.config_timer();
@@ -213,8 +189,8 @@ where
         Self {
             config,
             interface,
-            tx_buffer: [u8; BUF_len],
-            rx_buffer: [u8; BUF_len],
+            tx_buffer: [u8; BUF_SIZE],
+            rx_buffer: [u8; BUF_SIZE],
             rx_len : 0,
             tx_len : 0,
             tx_pos : 0,
@@ -225,6 +201,7 @@ where
             timeout_max_tx_time_in_us,
             timeout_max_sdr_time_in_us,
             timer_timeout_in_us: timeout_max_syn_time_in_us,
+            data_handling,
             input_data,
             output_data,
             user_para,
@@ -239,7 +216,7 @@ where
             freeze: false,
             sync: false,
             watchdog_act: false,
-            min_tdsr: 0,
+            min_tsrd: 0,
             freeze_act: false,
             sync_act: false,
             last_connection_time: current_time,
@@ -280,7 +257,7 @@ where
 
         // Einlesen erlaubt?
         if StreamState::GetData == self.stream_state {
-    if self.rx_len < BUF_len
+    if self.rx_len < self.rx_buffer.len()
     {
       self.rx_len+=1;
         }
@@ -308,12 +285,6 @@ where
         self.interface.run_timer(self.timer_timeout_in_us);
     }
 
-    pub fn handle_message_timeout(&mut self) {
-        let _test = self.buffer.len();
-
-        self.buffer.clear();
-    }
-
     pub fn timer_interrupt_handler(&mut self) {
         // Timer A Stop
         self.interface.stop_timer();
@@ -338,11 +309,9 @@ where
                 self.interface.wait_for_activ_transmission();
                 self.interface.tx_rs485_enable();
                 self.interface.activate_tx_interrupt();
-                match self.buffer.pop() {
-                    Some(data) => self.interface.set_uart_value(data),
-                    None => (),
+                self.interface.set_uart_value(self.tx_buffer[self.tx_pos]);
+                self.tx_pos+=1;
                 }
-            }
             StreamState::SendData => {
                 self.stream_state = StreamState::WaitSyn;
                 self.timer_timeout_in_us = self.timeout_max_syn_time_in_us;
@@ -357,6 +326,7 @@ where
                 //TODO:
                 // std::vector<uint8_t> unUsed;
                 // m_datafunc(m_outputReg, unUsed); // outputs,inputs
+                data_handling(self.output_data, [0;0]);
             }
         }
 
@@ -419,9 +389,9 @@ where
 
     fn transmit(&mut self) {
       self.tx_pos = 0;
-        if 0 != self.min_tdsr {
+        if 0 != self.min_tsdr {
             self.stream_state = StreamState::WaitMinTsdr;
-            self.timer_timeout_in_us = (self.config.counter_frequency * u32::from(self.min_tdsr))
+            self.timer_timeout_in_us = (self.config.counter_frequency * u32::from(self.min_tsdr))
                 / self.config.baudrate
                 / 2u32;
         } else {
@@ -492,14 +462,14 @@ process_data = true;
    }
 
   cmd_type::SD2 => {
-    if self.rx_len == (self.rx_buffer[1] + 6ulen)
+    if self.rx_len == (self.rx_buffer[1] + 6usize)
     {
 
     pdu_len = self.rx_buffer[1]; // DA+SA+FC+Nutzdaten
     destination_add = self.rx_buffer[4];
     source_add = self.rx_buffer[5];
     function_code = self.rx_buffer[6];
-    fcs_data = self.rx_buffer[pdu_len + 4ulen];
+    fcs_data = self.rx_buffer[pdu_len + 4usize];
 
     if self.check_destination_addr(destination_add)
     {    
@@ -695,41 +665,39 @@ process_data = true;
             (function_code == (fc_request::REQUEST + fc_request::SRD_LOW))
         {
           // Erste Diagnose Abfrage (Aufruf Telegramm)
-          // pb_uart_buffer[4]  = master_addr;                  // Ziel Master (mit SAP Offset)
-          // pb_uart_buffer[5]  = slave_addr + SAP_OFFSET;      // Quelle Slave (mit SAP Offset)
-          // pb_uart_buffer[6]  = SLAVE_DATA;
-          self.tx_buffer[7] = ssap_data;         // Ziel SAP Master
+          let diagnose_data:[u8;EXTERN_DIAG_PARA_SIZE];
+          diagnose_data[0] = ssap_data;         // Ziel SAP Master
           self.tx_buffer[8] = dsap_data;         // Quelle SAP Slave
           self.tx_buffer[9] = diagnose_status_1; // Status 1
           if DpSlaveState::Por == slave_status
           {
-            self.tx_buffer[10] = STATUS_2_DEFAULT + PRM_REQ_ + 0x04; // Status 2
+            self.tx_buffer[10] = sap_diagnose_byte2::STATUS_2_DEFAULT + sap_diagnose_byte2::PRM_REQ + 0x04; // Status 2
             self.tx_buffer[12] = MASTER_ADD_DEFAULT;                 // Adresse Master
           }
           else
           {
-            self.tx_buffer[10] = STATUS_2_DEFAULT + 0x04;  // Status 2
+            self.tx_buffer[10] = sap_diagnose_byte2::STATUS_2_DEFAULT + 0x04;  // Status 2
             self.tx_buffer[12] = master_addr - SAP_OFFSET; // Adresse Master
           }
 
           if self.watchdog_act
           {
-            self.tx_buffer[10] |= WD_ON_;
+            self.tx_buffer[10] |= sap_diagnose_byte2::WD_ON;
           }
 
           if self.freeze_act
           {
-            self.tx_buffer[10] |= FREEZE_MODE_;
+            self.tx_buffer[10] |= sap_diagnose_byte2::FREEZE_MODE;
           }
 
           if self.sync_act
           {
-            self.tx_buffer[10] |= SYNC_MODE_;
+            self.tx_buffer[10] |= sap_diagnose_byte2::SYNC_MODE;
           }
 
-          self.tx_buffer[11] = DIAG_len_OK;       // Status 3
-          self.tx_buffer[13] = m_config.identHigh; // Ident high
-          self.tx_buffer[14] = m_config.identLow;  // Ident low
+          self.tx_buffer[11] = sap_diagnose_byte3::DIAG_SIZE_OK;       // Status 3
+          self.tx_buffer[13] = self.config.ident_high; // Ident high
+          self.tx_buffer[14] = self.config.ident_low;  // Ident low
           if self.extern_diag_para.len() > 0
           {
             self.tx_buffer[15] = sap_diagnose_ext::EXT_DIAG_GERAET + self.extern_diag_para.len() + 1; // Diagnose (Typ und Anzahl Bytes)
@@ -742,7 +710,7 @@ process_data = true;
           }
           else
           {
-
+            self.transmit_message_sd2(fc_response::DATA_LOW, SAP_OFFSET, )
             sendCmd(cmd_type::SD2, DATA_LOW, SAP_OFFSET, &self.tx_buffer[7], 8);
           }
         }
@@ -819,18 +787,18 @@ process_data = true;
 
           if (self.rx_buffer[12] > 10)
           {
-            self.min_tsdr = self.rx_buffer[12] - 11;
+            self.min_tsrd = self.rx_buffer[12] - 11;
           }
           else
           {
-            self.min_tsdr = 0;
+            self.min_tsrd = 0;
           }
 
            self.config.ident_high = self.rx_buffer[13];
           self.config.ident_low = self.rx_buffer[14];
 
           // User Parameter groe�e = Laenge - DA, SA, FC, DSAP, SSAP, 7 Parameter Bytes
-          User_Para_len = PDU_len - 12;
+          USER_PARA_SIZE = PDU_len - 12;
 
           // User Parameter einlesen
           if (m_userPara.len() > 0)
@@ -845,7 +813,7 @@ process_data = true;
           group = self.rx_buffer[15]; // wir speichern das gesamte Byte und sparen uns damit die Schleife. Ist unsere Gruppe gemeint, ist die Verundung von Gruppe und Empfang ungleich 0
 
           // Kurzquittung
-          sendCmd(cmd_type::SC, 0, SAP_OFFSET, &self.tx_buffer[0], 0);
+          self.transmit_message_sc();
           // m_printfunc("Quittung");
           if (DpSlaveState::Wprm == self.slave_state)
           {
@@ -866,7 +834,7 @@ process_data = true;
         // Spezielles Format fuer max. 64/132 Byte IO
 
         Module_cnt = 0;
-        Vendor_Data_len = 0;
+        VENDOR_DATA_SIZE = 0;
 
         // Je nach PDU Datengroesse mehrere Bytes auswerten
         // LE/LEr - (DA+SA+FC+DSAP+SSAP) = Anzahl Config Bytes
@@ -875,9 +843,9 @@ process_data = true;
            match (self.rx_buffer[9 + cnt] & sap_check_config_request::CFG_DIRECTION) {
             sap_check_config_request::CFG_INPUT => {
 
-            // Input_Data_len = (pb_uart_buffer[9+cnt] & CFG_BYTE_CNT_) + 1;
+            // INPUT_DATA_SIZE = (pb_uart_buffer[9+cnt] & CFG_BYTE_CNT_) + 1;
             // if (pb_uart_buffer[9+cnt] & CFG_WIDTH_ & CFG_WORD)
-            //   Input_Data_len = Input_Data_len*2;
+            //   INPUT_DATA_SIZE = INPUT_DATA_SIZE*2;
 
             m_moduleData[Module_cnt][0] = (self.rx_buffer[9 + cnt] & CFG_BYTE_CNT_) + 1;
             if (self.rx_buffer[9 + cnt] & CFG_WIDTH_ & CFG_WORD)
@@ -889,9 +857,9 @@ process_data = true;
 
             sap_check_config_request::CFG_OUTPUT => {
 
-            // Output_Data_len = (pb_uart_buffer[9+cnt] & CFG_BYTE_CNT_) + 1;
+            // OUTPUT_DATA_SIZE = (pb_uart_buffer[9+cnt] & CFG_BYTE_CNT_) + 1;
             // if (pb_uart_buffer[9+cnt] & CFG_WIDTH_ & CFG_WORD)
-            //   Output_Data_len = Output_Data_len*2;
+            //   OUTPUT_DATA_SIZE = OUTPUT_DATA_SIZE*2;
 
             m_moduleData[Module_cnt][1] = (self.rx_buffer[9 + cnt] & CFG_BYTE_CNT_) + 1;
             if (self.rx_buffer[9 + cnt] & CFG_WIDTH_ & CFG_WORD)
@@ -903,12 +871,12 @@ process_data = true;
 
             sap_check_config_request::CFG_INPUT_OUTPUT => {
 
-            // Input_Data_len = (pb_uart_buffer[9+cnt] & CFG_BYTE_CNT_) + 1;
-            // Output_Data_len = (pb_uart_buffer[9+cnt] & CFG_BYTE_CNT_) + 1;
+            // INPUT_DATA_SIZE = (pb_uart_buffer[9+cnt] & CFG_BYTE_CNT_) + 1;
+            // OUTPUT_DATA_SIZE = (pb_uart_buffer[9+cnt] & CFG_BYTE_CNT_) + 1;
             // if (pb_uart_buffer[9+cnt] & CFG_WIDTH_ & CFG_WORD)
             //{
-            //   Input_Data_len = Input_Data_len*2;
-            //   Output_Data_len = Output_Data_len*2;
+            //   INPUT_DATA_SIZE = INPUT_DATA_SIZE*2;
+            //   OUTPUT_DATA_SIZE = OUTPUT_DATA_SIZE*2;
             // }
 
             m_moduleData[Module_cnt][0] = (self.rx_buffer[9 + cnt] & CFG_BYTE_CNT_) + 1;
@@ -931,7 +899,7 @@ process_data = true;
             if (self.rx_buffer[9 + cnt] & CFG_SP_VENDOR_CNT_)
             {
               // Anzahl Herstellerdaten sichern
-              Vendor_Data_len += self.rx_buffer[9 + cnt] & CFG_SP_VENDOR_CNT_;
+              VENDOR_DATA_SIZE += self.rx_buffer[9 + cnt] & CFG_SP_VENDOR_CNT_;
 
               // Vendor_Data[] = pb_uart_buffer[];
 
@@ -953,9 +921,9 @@ process_data = true;
 
                   sap_check_config_request::CFG_SP_INPUT => { // Eingang (2 Byte)
 
-              // Input_Data_len = (pb_uart_buffer[10+cnt] & CFG_SP_BYTE_CNT_) + 1;
+              // INPUT_DATA_SIZE = (pb_uart_buffer[10+cnt] & CFG_SP_BYTE_CNT_) + 1;
               // if (pb_uart_buffer[10+cnt] & CFG_WIDTH_ & CFG_WORD)
-              //   Input_Data_len = Input_Data_len*2;
+              //   INPUT_DATA_SIZE = INPUT_DATA_SIZE*2;
 
               m_moduleData[Module_cnt][0] = (self.rx_buffer[10 + cnt] & CFG_SP_BYTE_CNT_) + 1;
               if (self.rx_buffer[10 + cnt] & CFG_WIDTH_ & CFG_WORD)
@@ -969,9 +937,9 @@ process_data = true;
 
                    sap_check_config_request::CFG_SP_OUTPUT => { // Ausgang (2 Byte)
 
-              // Output_Data_len = (pb_uart_buffer[10+cnt] & CFG_SP_BYTE_CNT_) + 1;
+              // OUTPUT_DATA_SIZE = (pb_uart_buffer[10+cnt] & CFG_SP_BYTE_CNT_) + 1;
               // if (pb_uart_buffer[10+cnt] & CFG_WIDTH_ & CFG_WORD)
-              //   Output_Data_len = Output_Data_len*2;
+              //   OUTPUT_DATA_SIZE = OUTPUT_DATA_SIZE*2;
 
               m_moduleData[Module_cnt][1] = (self.rx_buffer[10 + cnt] & CFG_SP_BYTE_CNT_) + 1;
               if (self.rx_buffer[10 + cnt] & CFG_WIDTH_ & CFG_WORD)
@@ -986,14 +954,14 @@ process_data = true;
                     sap_check_config_request::CFG_SP_INPUT_OUTPUT =>{ // Ein- und Ausgang (3 Byte)
 
               // Erst Ausgang...
-              // Output_Data_len = (pb_uart_buffer[10+cnt] & CFG_SP_BYTE_CNT_) + 1;
+              // OUTPUT_DATA_SIZE = (pb_uart_buffer[10+cnt] & CFG_SP_BYTE_CNT_) + 1;
               // if (pb_uart_buffer[10+cnt] & CFG_WIDTH_ & CFG_WORD)
-              //  Output_Data_len = Output_Data_len*2;
+              //  OUTPUT_DATA_SIZE = OUTPUT_DATA_SIZE*2;
 
               // Dann Eingang
-              // Input_Data_len = (pb_uart_buffer[11+cnt] & CFG_SP_BYTE_CNT_) + 1;
+              // INPUT_DATA_SIZE = (pb_uart_buffer[11+cnt] & CFG_SP_BYTE_CNT_) + 1;
               // if (pb_uart_buffer[11+cnt] & CFG_WIDTH_ & CFG_WORD)
-              //  Input_Data_len = Input_Data_len*2;
+              //  INPUT_DATA_SIZE = INPUT_DATA_SIZE*2;
 
               // Erst Ausgang...
               m_moduleData[Module_cnt][0] = (self.rx_buffer[10 + cnt] & CFG_SP_BYTE_CNT_) + 1;
@@ -1019,13 +987,13 @@ process_data = true;
 
         }   // For Ende
 
-        if (Vendor_Data_len != 0)
+        if (VENDOR_DATA_SIZE != 0)
         {
           // Auswerten
         }
 
         // Bei Fehler -> CFG_FAULT_ in Diagnose senden
-        if (self.vendor_data.len() > 0) && (Module_cnt > m_moduleData.len() || Vendor_Data_len != self.vendor_data.len())
+        if (self.vendor_data.len() > 0) && (Module_cnt > m_moduleData.len() || VENDOR_DATA_SIZE != self.vendor_data.len())
         {
           diagnose_status_1 |= sap_diagnose_byte1::CFG_FAULT;
         }
@@ -1108,11 +1076,11 @@ process_data = true;
         {
           if (self.diagnose_status_1 & sap_diagnose_byte1::EXT_DIAG) != 0
           {
-            self.transmit_message_sd2(fc_response::DATA_HIGH, 0, &self.tx_buffer[7]); // Diagnose Abfrage anfordern
+            self.transmit_message_sd2(fc_response::DATA_HIGH, 0, [0;0]); // Diagnose Abfrage anfordern
           }
           else
           {
-            sendCmd(cmd_type::SD2, DATA_LOW, 0, &self.tx_buffer[7], m_inputReg.len()); // Daten senden
+            self.transmit_message_sd2(fc_response::DATA_LOW, 0, &self.input_data); // Daten senden
           }
         }
         else

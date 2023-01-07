@@ -41,6 +41,7 @@ mod app {
         prelude::*,
         serial::{Config, Rx as serialRx, Serial, Tx as serialTx /*TxDma1, RxDma1,*/},
         timer::{CounterUs, Event},
+        rtc::Rtc,
     };
     //use rtic::{app};
 
@@ -78,6 +79,11 @@ mod app {
         >,
     }
 
+    fn data_handling(input: &[u8], output: &[u8])
+    {
+
+    }
+
     #[init]
     fn init(cx: init::Context) -> (Shared, Local, init::Monotonics) {
         // init::LateResources
@@ -97,15 +103,14 @@ mod app {
 
         let mut cp = cx.core;
 
-        // Initialize the monotonic timer (CYCCNT)
-        //cp.DCB.enable_trace();
-
-        //cx.schedule.blinky(cx.start + PERIOD.cycles()).unwrap();
-
         // Initialize the monotonic
         let mono = DwtSystick::new(&mut cp.DCB, cp.DWT, cp.SYST, PERIOD);
-
         //cp.DWT.enable_cycle_counter();
+
+        // let mut pwr = cx.device.PWR;
+        // let mut backup_domain = rcc.bkp.constrain(p.BKP, &mut pwr);
+        // let rtc = Rtc::new(cx.device.RTC, backup_domain);
+        // rtc.current_time()
 
         let mut gpioa = cx.device.GPIOA.split();
         let mut gpiob = cx.device.GPIOB.split();
@@ -169,7 +174,7 @@ mod app {
         let rx_en = gpiob.pb0.into_push_pull_output(&mut gpiob.crl);
         let interface = PbDpHwInterface::new(serial3_tx, serial3_rx, tx_en, rx_en, timer);
 
-        let profibus_slave = PbDpSlave::new(profibus_config, interface);
+        let profibus_slave = PbDpSlave::new(profibus_config, interface, data_handling);
 
         block!(serial1_tx.write(b't')).ok();
 
