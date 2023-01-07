@@ -326,7 +326,7 @@ where
                 //TODO:
                 // std::vector<uint8_t> unUsed;
                 // m_datafunc(m_outputReg, unUsed); // outputs,inputs
-                data_handling(self.output_data, [0;0]);
+                data_handling([0;0], self.output_data);
             }
         }
 
@@ -353,7 +353,7 @@ where
       self.tx_buffer[4] = self.master_addr;
       self.tx_buffer[5] = self.config.addr + sap_offset;
       self.tx_buffer[6] =function_code;
-
+      self.tx_buffer[7..] = pdu;
       let checksum = self.calc_checksum(&self.tx_buffer[4..(7+pdu.len())]);
       self.tx_buffer[7 + pdu.len()] = checksum;
       self.tx_buffer[8 + pdu.len()] = cmd_type::ED;
@@ -361,11 +361,12 @@ where
       self.transmit();
     }
 
-    fn transmit_message_sd3(&mut self, function_code: u8, sap_offset: u8, pdu: &[u8]) {
+    fn transmit_message_sd3(&mut self, function_code: u8, sap_offset: u8, pdu: &[u8;8]) {
       self.tx_buffer[0] = cmd_type::SD3;
       self.tx_buffer[1] = self.master_addr;
       self.tx_buffer[2] = self.config.addr + sap_offset;
       self.tx_buffer[3] =function_code;
+      self.tx_buffer[4..] = pdu;
       let checksum = self.calc_checksum(&self.tx_buffer[4..9]);
       self.tx_buffer[9] = checksum;
       self.tx_buffer[10] = cmd_type::ED;
@@ -622,16 +623,14 @@ process_data = true;
           {
             // SYNC Zustand loeschen
             self.sync = false;
-            std::vector<uint8_t> inputDelete;
-            m_datafunc(m_outputReg, inputDelete); // outputs,inputs
+            self.data_handling([0;0], self.output_data);
           }
           else if (self.rx_buffer[9] & sap_global_control::FREEZE) != 0
           {
             // Eingaenge nicht mehr neu einlesen
             if (self.freeze)
             {
-              std::vector<uint8_t> outputFreeze;
-              m_datafunc(outputFreeze, m_inputReg); // outputs,inputs
+              data_handling(self.input_data, [0;0]);
             }
             self.freeze = true;
           }
@@ -641,8 +640,7 @@ process_data = true;
 
             if self.sync
             {
-              std::vector<uint8_t> inputNotUsed;
-              m_datafunc(m_outputReg, inputNotUsed); // outputs,inputs
+              data_handling([0;0], self.output_data);
             }
             self.sync = true;
           }
@@ -665,53 +663,48 @@ process_data = true;
             (function_code == (fc_request::REQUEST + fc_request::SRD_LOW))
         {
           // Erste Diagnose Abfrage (Aufruf Telegramm)
-          let diagnose_data:[u8;EXTERN_DIAG_PARA_SIZE];
+          let diagnose_data:[u8;EXTERN_DIAG_PARA_SIZE + 8];
           diagnose_data[0] = ssap_data;         // Ziel SAP Master
-          self.tx_buffer[8] = dsap_data;         // Quelle SAP Slave
-          self.tx_buffer[9] = diagnose_status_1; // Status 1
+          diagnose_data[1] = dsap_data;         // Quelle SAP Slave
+          diagnose_data[2] = diagnose_status_1; // Status 1
           if DpSlaveState::Por == slave_status
           {
-            self.tx_buffer[10] = sap_diagnose_byte2::STATUS_2_DEFAULT + sap_diagnose_byte2::PRM_REQ + 0x04; // Status 2
-            self.tx_buffer[12] = MASTER_ADD_DEFAULT;                 // Adresse Master
+            diagnose_data[3] = sap_diagnose_byte2::STATUS_2_DEFAULT + sap_diagnose_byte2::PRM_REQ + 0x04; // Status 2
+            diagnose_data[5] = MASTER_ADD_DEFAULT;                 // Adresse Master
           }
           else
           {
-            self.tx_buffer[10] = sap_diagnose_byte2::STATUS_2_DEFAULT + 0x04;  // Status 2
-            self.tx_buffer[12] = master_addr - SAP_OFFSET; // Adresse Master
+            diagnose_data[3] = sap_diagnose_byte2::STATUS_2_DEFAULT + 0x04;  // Status 2
+            diagnose_data[5] = master_addr - SAP_OFFSET; // Adresse Master
           }
 
           if self.watchdog_act
           {
-            self.tx_buffer[10] |= sap_diagnose_byte2::WD_ON;
+            diagnose_data[3] |= sap_diagnose_byte2::WD_ON;
           }
 
           if self.freeze_act
           {
-            self.tx_buffer[10] |= sap_diagnose_byte2::FREEZE_MODE;
+            diagnose_data[3] |= sap_diagnose_byte2::FREEZE_MODE;
           }
 
           if self.sync_act
           {
-            self.tx_buffer[10] |= sap_diagnose_byte2::SYNC_MODE;
+            diagnose_data[3] |= sap_diagnose_byte2::SYNC_MODE;
           }
 
-          self.tx_buffer[11] = sap_diagnose_byte3::DIAG_SIZE_OK;       // Status 3
-          self.tx_buffer[13] = self.config.ident_high; // Ident high
-          self.tx_buffer[14] = self.config.ident_low;  // Ident low
+          diagnose_data[4] = sap_diagnose_byte3::DIAG_SIZE_OK;       // Status 3
+          diagnose_data[6] = self.config.ident_high; // Ident high
+          diagnose_data[7] = self.config.ident_low;  // Ident low
           if self.extern_diag_para.len() > 0
           {
-            self.tx_buffer[15] = sap_diagnose_ext::EXT_DIAG_GERAET + self.extern_diag_para.len() + 1; // Diagnose (Typ und Anzahl Bytes)
-            for (cnt = 0; cnt < self.extern_diag_para.len(); cnt++)
-            {
-              self.tx_buffer[16 + cnt] = self.extern_diag_para[cnt];
-            }
-
-            sendCmd(cmd_type::SD2, DATA_LOW, SAP_OFFSET, &self.tx_buffer[7], 9 + m_diagData.len());
+            diagnose_data[8] = sap_diagnose_ext::EXT_DIAG_GERAET + self.extern_diag_para.len() + 1; // Diagnose (Typ und Anzahl Bytes)
+            diagnose_data[9..] = self.extern_diag_para;
+            self.transmit_message_sd2(fc_response::DATA_LOW, SAP_OFFSET, &diagnose_data);
           }
           else
           {
-            self.transmit_message_sd2(fc_response::DATA_LOW, SAP_OFFSET, )
-            sendCmd(cmd_type::SD2, DATA_LOW, SAP_OFFSET, &self.tx_buffer[7], 8);
+            self.transmit_message_sd2(fc_response::DATA_LOW, SAP_OFFSET, &diagnose_data[..8]);
           }
         }
 
@@ -801,16 +794,15 @@ process_data = true;
           USER_PARA_SIZE = PDU_len - 12;
 
           // User Parameter einlesen
-          if (m_userPara.len() > 0)
+          if (self.user_para.len() > 0)
           {
-            for (cnt = 0; cnt < m_userPara.len(); cnt++)
-              m_userPara[cnt] = self.rx_buffer[16 + cnt];
+            user_para = self.rx_buffer[16..(16 + self.user_para.len())];
           }
 
           // Gruppe einlesen
           // for (group = 0; pb_uart_buffer[15] != 0; group++) pb_uart_buffer[15]>>=1;
 
-          group = self.rx_buffer[15]; // wir speichern das gesamte Byte und sparen uns damit die Schleife. Ist unsere Gruppe gemeint, ist die Verundung von Gruppe und Empfang ungleich 0
+          self.group = self.rx_buffer[15]; // wir speichern das gesamte Byte und sparen uns damit die Schleife. Ist unsere Gruppe gemeint, ist die Verundung von Gruppe und Empfang ungleich 0
 
           // Kurzquittung
           self.transmit_message_sc();
@@ -847,8 +839,8 @@ process_data = true;
             // if (pb_uart_buffer[9+cnt] & CFG_WIDTH_ & CFG_WORD)
             //   INPUT_DATA_SIZE = INPUT_DATA_SIZE*2;
 
-            m_moduleData[Module_cnt][0] = (self.rx_buffer[9 + cnt] & CFG_BYTE_CNT_) + 1;
-            if (self.rx_buffer[9 + cnt] & CFG_WIDTH_ & CFG_WORD)
+            m_moduleData[Module_cnt][0] = (self.rx_buffer[9 + cnt] & sap_check_config_request::CFG_BYTE_CNT) + 1;
+            if (self.rx_buffer[9 + cnt] & sap_check_config_request::CFG_WIDTH & sap_check_config_request::CFG_WORD)
               m_moduleData[Module_cnt][0] = m_moduleData[Module_cnt][0] * 2;
 
             Module_cnt++;
@@ -861,8 +853,8 @@ process_data = true;
             // if (pb_uart_buffer[9+cnt] & CFG_WIDTH_ & CFG_WORD)
             //   OUTPUT_DATA_SIZE = OUTPUT_DATA_SIZE*2;
 
-            m_moduleData[Module_cnt][1] = (self.rx_buffer[9 + cnt] & CFG_BYTE_CNT_) + 1;
-            if (self.rx_buffer[9 + cnt] & CFG_WIDTH_ & CFG_WORD)
+            m_moduleData[Module_cnt][1] = (self.rx_buffer[9 + cnt] & sap_check_config_request::CFG_BYTE_CNT) + 1;
+            if (self.rx_buffer[9 + cnt] & sap_check_config_request::CFG_WIDTH & sap_check_config_request::CFG_WORD)
               m_moduleData[Module_cnt][1] = m_moduleData[Module_cnt][1] * 2;
 
             Module_cnt++;
@@ -879,9 +871,9 @@ process_data = true;
             //   OUTPUT_DATA_SIZE = OUTPUT_DATA_SIZE*2;
             // }
 
-            m_moduleData[Module_cnt][0] = (self.rx_buffer[9 + cnt] & CFG_BYTE_CNT_) + 1;
-            m_moduleData[Module_cnt][1] = (self.rx_buffer[9 + cnt] & CFG_BYTE_CNT_) + 1;
-            if (self.rx_buffer[9 + cnt] & CFG_WIDTH_ & CFG_WORD)
+            m_moduleData[Module_cnt][0] = (self.rx_buffer[9 + cnt] & sap_check_config_request::CFG_BYTE_CNT) + 1;
+            m_moduleData[Module_cnt][1] = (self.rx_buffer[9 + cnt] & sap_check_config_request::CFG_BYTE_CNT) + 1;
+            if (self.rx_buffer[9 + cnt] & sap_check_config_request::CFG_WIDTH & sap_check_config_request::CFG_WORD)
             {
               m_moduleData[Module_cnt][0] = m_moduleData[Module_cnt][0] * 2;
               m_moduleData[Module_cnt][1] = m_moduleData[Module_cnt][1] * 2;
@@ -896,15 +888,15 @@ process_data = true;
             // Spezielles Format
 
             // Herstellerspezifische Bytes vorhanden?
-            if (self.rx_buffer[9 + cnt] & CFG_SP_VENDOR_CNT_)
+            if (self.rx_buffer[9 + cnt] & sap_check_config_request::CFG_SP_VENDOR_CNT)
             {
               // Anzahl Herstellerdaten sichern
-              VENDOR_DATA_SIZE += self.rx_buffer[9 + cnt] & CFG_SP_VENDOR_CNT_;
+              VENDOR_DATA_SIZE += self.rx_buffer[9 + cnt] & sap_check_config_request::CFG_SP_VENDOR_CNT;
 
               // Vendor_Data[] = pb_uart_buffer[];
 
               // Anzahl von Gesamtanzahl abziehen
-              self.rx_buffer[1] -= self.rx_buffer[9 + cnt] & CFG_SP_VENDOR_CNT_;
+              self.rx_buffer[1] -= self.rx_buffer[9 + cnt] & sap_check_config_request::CFG_SP_VENDOR_CNT;
             }
 
             // I/O Daten
@@ -925,8 +917,8 @@ process_data = true;
               // if (pb_uart_buffer[10+cnt] & CFG_WIDTH_ & CFG_WORD)
               //   INPUT_DATA_SIZE = INPUT_DATA_SIZE*2;
 
-              m_moduleData[Module_cnt][0] = (self.rx_buffer[10 + cnt] & CFG_SP_BYTE_CNT_) + 1;
-              if (self.rx_buffer[10 + cnt] & CFG_WIDTH_ & CFG_WORD)
+              m_moduleData[Module_cnt][0] = (self.rx_buffer[10 + cnt] & sap_check_config_request::CFG_SP_BYTE_CNT) + 1;
+              if (self.rx_buffer[10 + cnt] & sap_check_config_request::CFG_WIDTH & sap_check_config_request::CFG_WORD)
                 m_moduleData[Module_cnt][0] = m_moduleData[Module_cnt][0] * 2;
 
               Module_cnt++;
@@ -941,8 +933,8 @@ process_data = true;
               // if (pb_uart_buffer[10+cnt] & CFG_WIDTH_ & CFG_WORD)
               //   OUTPUT_DATA_SIZE = OUTPUT_DATA_SIZE*2;
 
-              m_moduleData[Module_cnt][1] = (self.rx_buffer[10 + cnt] & CFG_SP_BYTE_CNT_) + 1;
-              if (self.rx_buffer[10 + cnt] & CFG_WIDTH_ & CFG_WORD)
+              m_moduleData[Module_cnt][1] = (self.rx_buffer[10 + cnt] & sap_check_config_request::CFG_SP_BYTE_CNT) + 1;
+              if (self.rx_buffer[10 + cnt] & sap_check_config_request::CFG_WIDTH & sap_check_config_request::CFG_WORD)
                 m_moduleData[Module_cnt][1] = m_moduleData[Module_cnt][1] * 2;
 
               Module_cnt+=1;
@@ -964,13 +956,13 @@ process_data = true;
               //  INPUT_DATA_SIZE = INPUT_DATA_SIZE*2;
 
               // Erst Ausgang...
-              m_moduleData[Module_cnt][0] = (self.rx_buffer[10 + cnt] & CFG_SP_BYTE_CNT_) + 1;
-              if (self.rx_buffer[10 + cnt] & CFG_WIDTH_ & CFG_WORD)
+              m_moduleData[Module_cnt][0] = (self.rx_buffer[10 + cnt] & sap_check_config_request::CFG_SP_BYTE_CNT) + 1;
+              if (self.rx_buffer[10 + cnt] & sap_check_config_request::CFG_WIDTH & sap_check_config_request::CFG_WORD)
                 m_moduleData[Module_cnt][0] = m_moduleData[Module_cnt][0] * 2;
 
               // Dann Eingang
-              m_moduleData[Module_cnt][1] = (self.rx_buffer[11 + cnt] & CFG_SP_BYTE_CNT_) + 1;
-              if (self.rx_buffer[11 + cnt] & CFG_WIDTH_ & CFG_WORD)
+              m_moduleData[Module_cnt][1] = (self.rx_buffer[11 + cnt] & sap_check_config_request::CFG_SP_BYTE_CNT) + 1;
+              if (self.rx_buffer[11 + cnt] & sap_check_config_request::CFG_WIDTH & sap_check_config_request::CFG_WORD)
                 m_moduleData[Module_cnt][1] = m_moduleData[Module_cnt][1] * 2;
 
               Module_cnt++;
@@ -986,8 +978,9 @@ process_data = true;
         _=> (),
 
         }   // For Ende
+      }
 
-        if (VENDOR_DATA_SIZE != 0)
+        if VENDOR_DATA_SIZE != 0
         {
           // Auswerten
         }
@@ -997,7 +990,7 @@ process_data = true;
         {
           diagnose_status_1 |= sap_diagnose_byte1::CFG_FAULT;
         }
-        else if ((self.vendor_data.len() == 0) && (Module_cnt > m_config.moduleCount))
+        else if (self.vendor_data.len() == 0) && (Module_cnt > self.config.module_count)
         {
           diagnose_status_1 |= sap_diagnose_byte1::CFG_FAULT;
         }
@@ -1007,14 +1000,13 @@ process_data = true;
         }
 
         // Kurzquittung
-        sendCmd(cmd_type::SC, 0, SAP_OFFSET, &self.tx_buffer[0], 0);
+        self.transmit_message_sc();
 
         if (DpSlaveState::Wcfg == self.slave_state)
         {
           self.slave_state = DpSlaveState::Dxchg;
         }
-
-    }
+      }
 
     _ => (),
 
@@ -1040,36 +1032,35 @@ process_data = true;
       {
         if self.sync_act && self.sync // write data in output_register when sync
         {
-          for (cnt = 0; cnt < m_outputReg.len(); cnt++)
+          if self.output_data.len() > 0
           {
-            m_outputReg[cnt] = self.rx_buffer[cnt + 7];
+            self.output_data = self.rx_buffer[7..(7+self.output_data.len())]
           }
         }
         else // normaler Betrieb
         {
-          for (cnt = 0; cnt < m_outputReg.len(); cnt++)
+          if self.output_data.len() > 0
           {
-            m_outputReg[cnt] = self.rx_buffer[cnt + 7];
+            self.output_data = self.rx_buffer[7..(7+self.output_data.len())]
           }
-          std::vector<uint8_t> unUsed;
-          m_datafunc(m_outputReg, unUsed); // outputs,inputs
+          self.data_handling([0;0], self.output_data);
         }
 
         if self.freeze_act && self.freeze // write input_register in telegram when freeze
         {
-          for (cnt = 0; cnt < m_inputReg.len(); cnt++)
-          {
-            self.tx_buffer[cnt + 7] = m_inputReg[cnt];
-          }
+          // if self.input_data.len() > 0
+          // {
+          //   self.tx_buffer[7..(7+self.input_data.len())] = self.input_data;
+          // }
+          //TODO => freeze does not work
         }
         else // normaler Betrieb
         {
-          std::vector<uint8_t> unUsed;
-          m_datafunc(unUsed, m_inputReg); // outputs,inputs
-          for (cnt = 0; cnt < m_inputReg.len(); cnt++)
-          {
-            self.tx_buffer[cnt + 7] = m_inputReg[cnt];
-          }
+          self.data_handling(self.input_data, [0;0]);
+          // if self.input_data.len() > 0
+          // {
+          //   self.tx_buffer[7..(7+self.input_data.len())] = self.input_data;
+          // }
         }
 
         if self.input_data.len() > 0
@@ -1099,6 +1090,5 @@ process_data = true;
   {
     self.rx_len = 0;
   }
-}
 }
 }
