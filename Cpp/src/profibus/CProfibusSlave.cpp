@@ -114,6 +114,7 @@ void CProfibusSlave::init_Profibus(Config &config, void (*func)(std::vector<uint
   m_userPara.resize(m_config.userParaSize);
   m_diagData.resize(m_config.externDiagParaSize);
   m_VendorData.resize(m_config.vendorDataSize);
+  m_moduleData.resize(m_config.moduleCount);
   for (cnt = 0; cnt < m_outputReg.size(); cnt++)
   {
     m_outputReg[cnt] = 0x00;

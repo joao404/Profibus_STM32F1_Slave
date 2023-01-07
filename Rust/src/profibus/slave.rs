@@ -1,11 +1,10 @@
-use heapless::Vec;
 use core::ops::Add;
 
 use super::hwinterface::HwInterface;
 use super::types::{
     cmd_type, dpv1_status_byte1, dpv1_status_byte2, dpv1_status_byte3, fc_request, fc_response,
     sap_check_config_request, sap_diagnose_byte1, sap_diagnose_byte2, sap_diagnose_byte3,
-    sap_diagnose_ext, sap_set_parameter_request, DpSlaveState, StreamState, SAP,
+    sap_diagnose_ext, sap_set_parameter_request, DpSlaveState, StreamState, SAP, sap_global_control
 };
 
 pub struct Config {
@@ -65,16 +64,22 @@ const DEFAULT_ADD: u8 = 126;
 #[allow(dead_code)]
 pub struct PbDpSlave<
     T,
-    const BUF_SIZE: usize,
-    const INPUT_DATA_SIZE: usize,
-    const OUTPUT_DATA_SIZE: usize,
-    const USER_PARA_SIZE: usize,
-    const EXTERN_DIAG_PARA_SIZE: usize,
-    const VENDOR_DATA_SIZE: usize,
+    const BUF_len: ulen,
+    const INPUT_DATA_len: ulen,
+    const OUTPUT_DATA_len: ulen,
+    const USER_PARA_len: ulen,
+    const EXTERN_DIAG_PARA_len: ulen,
+    const VENDOR_DATA_len: ulen,
 > {
     config: Config,
     interface: T,
-    buffer: Vec<u8, BUF_SIZE>,
+    tx_buffer: [u8; BUF_len],
+    rx_buffer: [u8; BUF_len],
+
+    rx_len : ulen,
+    tx_len : ulen,
+    tx_pos : ulen,
+
     slave_state: DpSlaveState,
     stream_state: StreamState,
     timeout_max_syn_time_in_us: u32,
@@ -84,11 +89,11 @@ pub struct PbDpSlave<
 
     timer_timeout_in_us: u32,
 
-    input_data: [u8; INPUT_DATA_SIZE],
-    output_data: [u8; OUTPUT_DATA_SIZE],
-    user_para: [u8; USER_PARA_SIZE],
-    extern_diag_para: [u8; EXTERN_DIAG_PARA_SIZE],
-    vendor_data: [u8; VENDOR_DATA_SIZE],
+    input_data: [u8; INPUT_DATA_len],
+    output_data: [u8; OUTPUT_DATA_len],
+    user_para: [u8; USER_PARA_len],
+    extern_diag_para: [u8; EXTERN_DIAG_PARA_len],
+    vendor_data: [u8; VENDOR_DATA_len],
 
     diagnose_status_1: u8,
     master_addr: u8,
@@ -112,21 +117,21 @@ pub struct PbDpSlave<
 
 impl<
         T,
-        const BUF_SIZE: usize,
-        const INPUT_DATA_SIZE: usize,
-        const OUTPUT_DATA_SIZE: usize,
-        const USER_PARA_SIZE: usize,
-        const EXTERN_DIAG_PARA_SIZE: usize,
-        const VENDOR_DATA_SIZE: usize,
+        const BUF_len: ulen,
+        const INPUT_DATA_len: ulen,
+        const OUTPUT_DATA_len: ulen,
+        const USER_PARA_len: ulen,
+        const EXTERN_DIAG_PARA_len: ulen,
+        const VENDOR_DATA_len: ulen,
     >
     PbDpSlave<
         T,
-        BUF_SIZE,
-        INPUT_DATA_SIZE,
-        OUTPUT_DATA_SIZE,
-        USER_PARA_SIZE,
-        EXTERN_DIAG_PARA_SIZE,
-        VENDOR_DATA_SIZE,
+        BUF_len,
+        INPUT_DATA_len,
+        OUTPUT_DATA_len,
+        USER_PARA_len,
+        EXTERN_DIAG_PARA_len,
+        VENDOR_DATA_len,
     >
 where
     T: HwInterface,
@@ -177,17 +182,17 @@ where
             config.addr = DEFAULT_ADD;
         }
 
-        // let input_data = Vec::<u8, InputDataSize>::new();
-        // let output_data = Vec::<u8, OutputDataSize>::new();
-        // let user_para = Vec::<u8, UserParaSize>::new();
-        // let extern_diag_para = Vec::<u8, ExternDiagParaSize>::new();
-        // let vendor_data = Vec::<u8, VendorDataSize>::new();
+        // let input_data = Vec::<u8, InputDatalen>::new();
+        // let output_data = Vec::<u8, OutputDatalen>::new();
+        // let user_para = Vec::<u8, UserParalen>::new();
+        // let extern_diag_para = Vec::<u8, ExternDiagParalen>::new();
+        // let vendor_data = Vec::<u8, VendorDatalen>::new();
 
-        let input_data = [0; INPUT_DATA_SIZE];
-        let output_data = [0; OUTPUT_DATA_SIZE];
-        let user_para = [0; USER_PARA_SIZE];
-        let extern_diag_para = [0; EXTERN_DIAG_PARA_SIZE];
-        let vendor_data = [0; VENDOR_DATA_SIZE];
+        let input_data = [0; INPUT_DATA_len];
+        let output_data = [0; OUTPUT_DATA_len];
+        let user_para = [0; USER_PARA_len];
+        let extern_diag_para = [0; EXTERN_DIAG_PARA_len];
+        let vendor_data = [0; VENDOR_DATA_len];
 
         // Timer init
         interface.config_timer();
@@ -208,7 +213,11 @@ where
         Self {
             config,
             interface,
-            buffer: Vec::<u8, BUF_SIZE>::new(),
+            tx_buffer: [u8; BUF_len],
+            rx_buffer: [u8; BUF_len],
+            rx_len : 0,
+            tx_len : 0,
+            tx_pos : 0,
             slave_state: DpSlaveState::Por,
             stream_state: StreamState::WaitSyn,
             timeout_max_syn_time_in_us,
@@ -262,7 +271,7 @@ where
     }
 
     pub fn handle_rx_byte(&mut self, data: u8) {
-        self.buffer.push(data).unwrap();
+      self.rx_buffer[self.rx_len] = data;
 
         // if we waited for TSYN, data can be saved
         if StreamState::WaitData == self.stream_state {
@@ -271,26 +280,30 @@ where
 
         // Einlesen erlaubt?
         if StreamState::GetData == self.stream_state {
-            self.buffer.push(data).unwrap();
+    if self.rx_len < BUF_len
+    {
+      self.rx_len+=1;
         }
-
+      }
         // Profibus Timer ruecksetzen
         self.interface.run_timer(self.timer_timeout_in_us);
     }
 
     pub fn tx_interrupt_handler(&mut self) {
-        match self.buffer.pop() {
-            Some(b) => {
-                self.interface.set_uart_value(b);
-            }
-            _ => {
+      if (tx_pos < tx_len)
+      {
+        // TX Buffer fuellen
+        self.interface.set_uart_value(tx_buffer[tx_pos]);
+        self.tx_pos+=1;
+        // m_printfunc(m_txCnt);
+      }
+      else{
                 self.interface.tx_rs485_disable();
                 // Alles gesendet, Interrupt wieder aus
                 self.interface.deactivate_tx_interrupt();
                 // clear Flag because we are not writing to buffer
                 self.interface.clear_tx_flag();
             }
-        }
 
         self.interface.run_timer(self.timer_timeout_in_us);
     }
@@ -308,7 +321,7 @@ where
         match self.stream_state {
             StreamState::WaitSyn => {
                 self.stream_state = StreamState::WaitData;
-                self.buffer.clear();
+                self.rx_len = 0;
                 self.interface.rx_rs485_enable(); // Auf Receive umschalten
                 self.timer_timeout_in_us = self.timeout_max_sdr_time_in_us;
             }
@@ -350,86 +363,62 @@ where
         self.interface.run_timer(self.timer_timeout_in_us);
     }
 
-    fn create_message_sd1(&mut self, function_code: u8, sap_offset: u8) {
-        self.buffer.clear();
-        let mut checksum: u8 = self.master_addr;
-        checksum += self.config.addr;
-        checksum += sap_offset;
-        checksum += function_code;
-        self.buffer.push(cmd_type::ED).unwrap_or_default();
-        self.buffer.push(checksum).unwrap_or_default();
-        self.buffer.push(function_code).unwrap_or_default();
-        self.buffer
-            .push(self.config.addr + sap_offset)
-            .unwrap_or_default();
-        self.buffer.push(self.master_addr).unwrap_or_default();
-        self.buffer.push(cmd_type::SD1).unwrap_or_default();
+    fn transmit_message_sd1(&mut self, function_code: u8, sap_offset: u8) {
+        self.tx_buffer[0] = cmd_type::SD1;
+        self.tx_buffer[1] = self.master_addr;
+        self.tx_buffer[2] = self.config.addr + sap_offset;
+        self.tx_buffer[3] =function_code;
+        let checksum = self.calc_checksum(&self.tx_buffer[1..4]);
+        self.tx_buffer[4] = checksum;
+        self.tx_buffer[5] = cmd_type::ED;
+        self.tx_len = 6;
         self.transmit();
     }
 
-    fn create_message_sd2(&mut self, function_code: u8, sap_offset: u8, pdu: &[u8]) {
-        self.buffer.clear();
-        let mut checksum: u8 = self.master_addr;
-        checksum += self.config.addr;
-        checksum += sap_offset;
-        checksum += function_code;
-        for input in pdu {
-            checksum += *input;
-        }
-        self.buffer.push(cmd_type::ED).unwrap_or_default();
-        self.buffer.push(checksum).unwrap_or_default();
-        for input in pdu.iter().rev() {
-            self.buffer.push(*input).unwrap_or_default();
-        }
-        self.buffer.push(function_code).unwrap_or_default();
-        self.buffer
-            .push(self.config.addr + sap_offset)
-            .unwrap_or_default();
-        self.buffer.push(self.master_addr).unwrap_or_default();
-        self.buffer.push(cmd_type::SD2).unwrap_or_default();
-        self.buffer.push(cmd_type::SD2).unwrap_or_default();
-        self.buffer.push(cmd_type::SD2).unwrap_or_default();
-        self.buffer.push(cmd_type::SD2).unwrap_or_default();
-        self.transmit();
+    fn transmit_message_sd2(&mut self, function_code: u8, sap_offset: u8, pdu: &[u8]) {
+        self.tx_buffer[0] = cmd_type::SD2;
+        self.tx_buffer[1] = pdu.len();
+        self.tx_buffer[2] = pdu.len();
+        self.tx_buffer[3] = cmd_type::SD2;
+      self.tx_buffer[4] = self.master_addr;
+      self.tx_buffer[5] = self.config.addr + sap_offset;
+      self.tx_buffer[6] =function_code;
+
+      let checksum = self.calc_checksum(&self.tx_buffer[4..(7+pdu.len())]);
+      self.tx_buffer[7 + pdu.len()] = checksum;
+      self.tx_buffer[8 + pdu.len()] = cmd_type::ED;
+      self.tx_len = 9 + pdu.len();
+      self.transmit();
     }
 
-    fn create_message_sd3(&mut self, function_code: u8, sap_offset: u8, pdu: &[u8]) {
-        self.buffer.clear();
-        let mut checksum: u8 = 0;
-        for input in pdu {
-            checksum += *input;
-        }
-        self.buffer.push(cmd_type::ED).unwrap_or_default();
-        self.buffer.push(checksum).unwrap_or_default();
-        for input in pdu.iter().rev() {
-            self.buffer.push(*input).unwrap_or_default();
-        }
-        self.buffer.push(function_code).unwrap_or_default();
-        self.buffer
-            .push(self.config.addr + sap_offset)
-            .unwrap_or_default();
-        self.buffer.push(self.master_addr).unwrap_or_default();
-        self.buffer.push(cmd_type::SD3).unwrap_or_default();
-        self.transmit();
+    fn transmit_message_sd3(&mut self, function_code: u8, sap_offset: u8, pdu: &[u8]) {
+      self.tx_buffer[0] = cmd_type::SD3;
+      self.tx_buffer[1] = self.master_addr;
+      self.tx_buffer[2] = self.config.addr + sap_offset;
+      self.tx_buffer[3] =function_code;
+      let checksum = self.calc_checksum(&self.tx_buffer[4..9]);
+      self.tx_buffer[9] = checksum;
+      self.tx_buffer[10] = cmd_type::ED;
+      self.tx_len = 11;
+      self.transmit();
     }
 
-    fn create_message_sd4(&mut self, sap_offset: u8) {
-        self.buffer.clear();
-        self.buffer
-            .push(self.config.addr + sap_offset)
-            .unwrap_or_default();
-        self.buffer.push(self.master_addr).unwrap_or_default();
-        self.buffer.push(cmd_type::SD4).unwrap_or_default();
-        self.transmit();
+    fn transmit_message_sd4(&mut self, sap_offset: u8) {
+      self.tx_buffer[0] = cmd_type::SD4;
+      self.tx_buffer[1] = self.master_addr;
+      self.tx_buffer[2] = self.config.addr + sap_offset;
+      self.tx_len = 3;
+      self.transmit();
     }
 
-    fn create_message_sc(&mut self) {
-        self.buffer.clear();
-        self.buffer.push(cmd_type::SC).unwrap_or_default();
+    fn transmit_message_sc(&mut self) {
+        self.tx_buffer[0]=cmd_type::SC;
+        self.tx_len = 1;
         self.transmit();
     }
 
     fn transmit(&mut self) {
+      self.tx_pos = 0;
         if 0 != self.min_tdsr {
             self.stream_state = StreamState::WaitMinTsdr;
             self.timer_timeout_in_us = (self.config.counter_frequency * u32::from(self.min_tdsr))
@@ -442,23 +431,17 @@ where
             self.interface.wait_for_activ_transmission();
             self.interface.tx_rs485_enable();
             self.interface.activate_tx_interrupt();
-            match self.buffer.pop() {
-                Some(data) => self.interface.set_uart_value(data),
-                None => (),
-            }
+            self.interface.set_uart_value[self.tx_buffer[self.tx_pos]];
+            self.tx_pos+=1;
         }
         self.interface.run_timer(self.timer_timeout_in_us);
     }
 
-    pub fn calc_checksum(data: Vec<u8, BUF_SIZE>, length: usize) -> u8 {
+    fn calc_checksum(data: &[u8]) -> u8 {
         let checksum = 0;
-
-        //TODO
-        //   while (length--)
-        //   {
-        //     csum += data[length];
-        //   }
-
+        for x in data{
+          checksum += *x;
+        }
         checksum
     }
 
@@ -481,88 +464,90 @@ where
   let destination_add : u8 = 0;
   let source_add : u8 = 0;
   let function_code : u8 = 0;
-  let FCS_data : u8 = 0;     // Frame Check Sequence
-  let PDU_size : u8 = 0; // PDU Groesse
-  let DSAP_data : u8 = 0;    // SAP Destination
-  let SSAP_data : u8 = 0;    // SAP Source
+  let fcs_data : u8 = 0;     // Frame Check Sequence
+  let pdu_len : u8 = 0; // PDU Groesse
+  let dsap_data : u8 = 0;    // SAP Destination
+  let ssap_data : u8 = 0;    // SAP Source
 
   match self.buffer[0]
   {
    cmd_type::SD1 => {
-    if (m_rxBufCnt != 6)
-      break;
+    if 6 == self.rx_len
+    {
+    destination_add = self.rx_buffer[1];
+    source_add = self.rx_buffer[2];
+    function_code = self.rx_buffer[3];
+    fcs_data = self.rx_buffer[4];
 
-    destination_add = m_rxBuffer[1];
-    source_add = m_rxBuffer[2];
-    function_code = m_rxBuffer[3];
-    FCS_data = m_rxBuffer[4];
-
-    if self.checkDestinationAdr(destination_add)
-      break;
-    if (calcChecksum(&m_rxBuffer[1], 3) != FCS_data)
-      break;
-
-    // FCV und FCB loeschen, da vorher überprüft
-    function_code &= 0xCF;
-    process_data = true;
-
+    if self.check_destination_addr(destination_add)
+    {    
+      if fcs_data == self.calc_checksum(&self.rx_buffer[1..4])
+    {
+// FCV und FCB loeschen, da vorher überprüft
+function_code &= 0xCF;
+process_data = true;
+    }
+  }
+    }
    }
 
   cmd_type::SD2 => {
-    if (m_rxBufCnt != m_rxBuffer[1] + 6U)
-      break;
-
-    PDU_size = m_rxBuffer[1]; // DA+SA+FC+Nutzdaten
-    destination_add = m_rxBuffer[4];
-    source_add = m_rxBuffer[5];
-    function_code = m_rxBuffer[6];
-    FCS_data = m_rxBuffer[PDU_size + 4U];
-
-    if (checkDestinationAdr(destination_add) == false)
-      break;
-    if (calcChecksum(&m_rxBuffer[4], PDU_size) != FCS_data)
+    if self.rx_len == (self.rx_buffer[1] + 6ulen)
     {
-      // m_printfunc((int)calc_checksum(&pb_uart_buffer[4], PDU_size));
-      break;
-    }
 
-    // FCV und FCB loeschen, da vorher überprüft
-    function_code &= 0xCF;
-    process_data = true;
+    pdu_len = self.rx_buffer[1]; // DA+SA+FC+Nutzdaten
+    destination_add = self.rx_buffer[4];
+    source_add = self.rx_buffer[5];
+    function_code = self.rx_buffer[6];
+    fcs_data = self.rx_buffer[pdu_len + 4ulen];
+
+    if self.check_destination_addr(destination_add)
+    {    
+      if fcs_data == self.calc_checksum(&self.rx_buffer[4..(7+pdu_len)])
+    {
+// FCV und FCB loeschen, da vorher überprüft
+function_code &= 0xCF;
+process_data = true;
+    }
+  }
+  }
 
  }
 
   cmd_type::SD3 => {
 
-    if (m_rxBufCnt != 11)
-      break;
+    if 11 == self.rx_len
+{
+    pdu_len = 8; // DA+SA+FC+Nutzdaten
+    destination_add = self.rx_len[1];
+    source_add = self.rx_len[2];
+    function_code = self.rx_len[3];
+    fcs_data = self.rx_len[9];
 
-    PDU_size = 8; // DA+SA+FC+Nutzdaten
-    destination_add = m_rxBuffer[1];
-    source_add = m_rxBuffer[2];
-    function_code = m_rxBuffer[3];
-    FCS_data = m_rxBuffer[9];
-
-    if (checkDestinationAdr(destination_add) == false)
-      break;
-    if (calcChecksum(&m_rxBuffer[1], 8) != FCS_data)
-      break;
-
-    // FCV und FCB loeschen, da vorher überprüft
-    function_code &= 0xCF;
-    process_data = true;
-
+    if self.check_destination_addr(destination_add)
+    {    
+      if fcs_data == self.calc_checksum(&self.rx_buffer[4..9])
+    {
+// FCV und FCB loeschen, da vorher überprüft
+function_code &= 0xCF;
+process_data = true;
+    }
   }
+}
+  }
+
   cmd_type::SD4 => {
 
-    if (m_rxBufCnt != 3)
-      break;
+    if 3 == self.rx_len
+{
+    destination_add = self.rx_buffer[1];
+    source_add = self.rx_buffer[2];
 
-    destination_add = m_rxBuffer[1];
-    source_add = m_rxBuffer[2];
-
-    if (checkDestinationAdr(destination_add) == false)
-      break;
+    if self.check_destination_addr(destination_add)
+    {
+      //TODO  
+    }
+}
   } 
 }// match self.buffer[0]
 
@@ -572,7 +557,7 @@ where
 
     self.master_addr = source_add; // Master Adresse ist Source Adresse
 
-    if (function_code & 0x30) == FCB_ // Startbedingung
+    if (function_code & 0x30) == fc_request::FCB // Startbedingung
     {
       self.fcv_act = true;
       self.fcb_last = true;
@@ -585,15 +570,15 @@ where
         // neue Verbindung und damit FCV ungültig
         fcv_act = false;
       }
-      else if (function_code & FCB_) == self.fcb_last // FCB ist gleich geblieben
+      else if (function_code & fc_request::FCB) == self.fcb_last // FCB ist gleich geblieben
       {
         // Nachricht wiederholen
-        txFunc(&m_txBuffer[0], m_txBufCnt);
+        self.transmit();
         // die Nachricht liegt noch im Speicher
       }
       else // Speichern des neuen FCB
       {
-        fcb_last = !fcb_last; // das negierte bit speichern, da sonst die vorherige Bedingung angeschlagen hätte
+        self.fcb_last = !self.fcb_last; // das negierte bit speichern, da sonst die vorherige Bedingung angeschlagen hätte
       }
     }
     else // wenn es keine Startbedingung gibt und wir nicht eingeschaltet sind, können wir fcv ausschalten
@@ -607,8 +592,8 @@ where
     // Service Access Point erkannt?
     if (destination_add & 0x80) && (source_add & 0x80)
     {
-      DSAP_data = m_rxBuffer[7];
-      SSAP_data = m_rxBuffer[8];
+      dsap_data = self.rx_buffer[7];
+      ssap_data = self.rx_buffer[8];
 
       // Ablauf Reboot:
       // 1) SSAP 62 -> DSAP 60 (Get Diagnostics Request)
@@ -619,14 +604,14 @@ where
 
       // Siehe Felser 8/2009 Kap. 4.1
       // m_printfunc((int)DSAP_data);
-      match DSAP_data
+      match dsap_data
       {
       SAP::SetSlaveAdr => { // Set Slave Address (SSAP 62 -> DSAP 55)
                               // Siehe Felser 8/2009 Kap. 4.2
 
         // Nur im Zustand "Wait Parameter" (WPRM) moeglich
 
-        if (DpSlaveState::Wrpm == self.slave_state)
+        if DpSlaveState::Wrpm == self.slave_state
         {
           // adresse ändern
           // new_addr = pb_uart_buffer[9];
@@ -635,62 +620,61 @@ where
           // if (pb_uart_buffer[12] & 0x01) adress_aenderung_sperren = true;
         }
 
-        sendCmd(cmd_type::SC, 0, SAP_OFFSET, &m_txBuffer[0], 0);
-
+        self.transmit_message_sc();
      }
 
      SAP::GlobalControl => { // Global Control Request (SSAP 62 -> DSAP 58)
                                // Siehe Felser 8/2009 Kap. 4.6.2
 
         // Wenn "Clear Data" high, dann SPS CPU auf "Stop"
-        if (m_rxBuffer[9] & CLEAR_DATA_)
+        if (self.rx_buffer[9] & sap_global_control::CLEAR_DATA) != 0
         {
-          errorLedOn(); // Status "SPS nicht bereit"
+          self.interface.error_led_on(); // Status "SPS nicht bereit"
         }
         else
         {
-          errorLedOff(); // Status "SPS OK"
+          self.interface.error_led_off(); // Status "SPS OK"
         }
 
         // Gruppe berechnen
         // for (cnt = 0;  pb_uart_buffer[10] != 0; cnt++) pb_uart_buffer[10]>>=1;
 
         // Wenn Befehl fuer uns ist
-        if ((m_rxBuffer[10] & group) != 0) //(cnt == group)
+        if (self.rx_buffer[10] & self.group) != 0 //(cnt == group)
         {
-          if (m_rxBuffer[9] & UNFREEZE_)
+          if (self.rx_buffer[9] & sap_global_control::UNFREEZE) != 0
           {
             // FREEZE Zustand loeschen
-            freeze = false;
-            // m_datafunc(NULL,&(m_txBuffer[7]));//outputs,inputs
+            self.freeze = false;
+            // m_datafunc(NULL,&(self.tx_buffer[7]));//outputs,inputs
           }
-          else if (m_rxBuffer[9] & UNSYNC_)
+          else if (self.rx_buffer[9] & sap_global_control::UNSYNC) != 0
           {
             // SYNC Zustand loeschen
-            sync = false;
+            self.sync = false;
             std::vector<uint8_t> inputDelete;
             m_datafunc(m_outputReg, inputDelete); // outputs,inputs
           }
-          else if (m_rxBuffer[9] & FREEZE_)
+          else if (self.rx_buffer[9] & sap_global_control::FREEZE) != 0
           {
             // Eingaenge nicht mehr neu einlesen
-            if (freeze)
+            if (self.freeze)
             {
               std::vector<uint8_t> outputFreeze;
               m_datafunc(outputFreeze, m_inputReg); // outputs,inputs
             }
-            freeze = true;
+            self.freeze = true;
           }
-          else if (m_rxBuffer[9] & SYNC_)
+          else if (self.rx_buffer[9] & sap_global_control::SYNC) != 0
           {
             // Ausgaenge nur bei SYNC Befehl setzen
 
-            if (sync)
+            if self.sync
             {
               std::vector<uint8_t> inputNotUsed;
               m_datafunc(m_outputReg, inputNotUsed); // outputs,inputs
             }
-            sync = true;
+            self.sync = true;
           }
         }
 
@@ -707,59 +691,59 @@ where
         // korrekte Konfiguration zu pruefen
         // m_printfunc((int)function_code);
         // m_printfunc(REQUEST_ + SRD_HIGH);
-        if ((function_code == (REQUEST_ + SRD_HIGH)) ||
-            (function_code == (REQUEST_ + SRD_LOW)))
+        if (function_code == (fc_request::REQUEST + fc_request::SRD_HIGH)) ||
+            (function_code == (fc_request::REQUEST + fc_request::SRD_LOW))
         {
           // Erste Diagnose Abfrage (Aufruf Telegramm)
           // pb_uart_buffer[4]  = master_addr;                  // Ziel Master (mit SAP Offset)
           // pb_uart_buffer[5]  = slave_addr + SAP_OFFSET;      // Quelle Slave (mit SAP Offset)
           // pb_uart_buffer[6]  = SLAVE_DATA;
-          m_txBuffer[7] = SSAP_data;         // Ziel SAP Master
-          m_txBuffer[8] = DSAP_data;         // Quelle SAP Slave
-          m_txBuffer[9] = diagnose_status_1; // Status 1
-          if (DpSlaveState::POR == slave_status)
+          self.tx_buffer[7] = ssap_data;         // Ziel SAP Master
+          self.tx_buffer[8] = dsap_data;         // Quelle SAP Slave
+          self.tx_buffer[9] = diagnose_status_1; // Status 1
+          if DpSlaveState::Por == slave_status
           {
-            m_txBuffer[10] = STATUS_2_DEFAULT + PRM_REQ_ + 0x04; // Status 2
-            m_txBuffer[12] = MASTER_ADD_DEFAULT;                 // Adresse Master
+            self.tx_buffer[10] = STATUS_2_DEFAULT + PRM_REQ_ + 0x04; // Status 2
+            self.tx_buffer[12] = MASTER_ADD_DEFAULT;                 // Adresse Master
           }
           else
           {
-            m_txBuffer[10] = STATUS_2_DEFAULT + 0x04;  // Status 2
-            m_txBuffer[12] = master_addr - SAP_OFFSET; // Adresse Master
+            self.tx_buffer[10] = STATUS_2_DEFAULT + 0x04;  // Status 2
+            self.tx_buffer[12] = master_addr - SAP_OFFSET; // Adresse Master
           }
 
-          if (watchdog_act)
+          if self.watchdog_act
           {
-            m_txBuffer[10] |= WD_ON_;
+            self.tx_buffer[10] |= WD_ON_;
           }
 
-          if (freeze_act)
+          if self.freeze_act
           {
-            m_txBuffer[10] |= FREEZE_MODE_;
+            self.tx_buffer[10] |= FREEZE_MODE_;
           }
 
-          if (sync_act)
+          if self.sync_act
           {
-            m_txBuffer[10] |= SYNC_MODE_;
+            self.tx_buffer[10] |= SYNC_MODE_;
           }
 
-          m_txBuffer[11] = DIAG_SIZE_OK;       // Status 3
-          m_txBuffer[13] = m_config.identHigh; // Ident high
-          m_txBuffer[14] = m_config.identLow;  // Ident low
-          if (m_diagData.size() > 0)
+          self.tx_buffer[11] = DIAG_len_OK;       // Status 3
+          self.tx_buffer[13] = m_config.identHigh; // Ident high
+          self.tx_buffer[14] = m_config.identLow;  // Ident low
+          if self.extern_diag_para.len() > 0
           {
-            m_txBuffer[15] = EXT_DIAG_GERAET + m_diagData.size() + 1; // Diagnose (Typ und Anzahl Bytes)
-            for (cnt = 0; cnt < m_diagData.size(); cnt++)
+            self.tx_buffer[15] = sap_diagnose_ext::EXT_DIAG_GERAET + self.extern_diag_para.len() + 1; // Diagnose (Typ und Anzahl Bytes)
+            for (cnt = 0; cnt < self.extern_diag_para.len(); cnt++)
             {
-              m_txBuffer[16 + cnt] = m_diagData[cnt];
+              self.tx_buffer[16 + cnt] = self.extern_diag_para[cnt];
             }
 
-            sendCmd(cmd_type::SD2, DATA_LOW, SAP_OFFSET, &m_txBuffer[7], 9 + m_diagData.size());
+            sendCmd(cmd_type::SD2, DATA_LOW, SAP_OFFSET, &self.tx_buffer[7], 9 + m_diagData.len());
           }
           else
           {
 
-            sendCmd(cmd_type::SD2, DATA_LOW, SAP_OFFSET, &m_txBuffer[7], 8);
+            sendCmd(cmd_type::SD2, DATA_LOW, SAP_OFFSET, &self.tx_buffer[7], 8);
           }
         }
 
@@ -784,7 +768,7 @@ where
         // m_printfunc((int)IDENT_HIGH_BYTE);
         // m_printfunc((int)pb_uart_buffer[14]);
         // m_printfunc((int)IDENT_LOW_BYTE);
-        if ((m_rxBuffer[13] == m_config.identHigh) && (m_rxBuffer[14] == m_config.identLow))
+        if ((self.rx_buffer[13] == self.config.ident_high) && (self.rx_buffer[14] == self.config.ident_low))
         {
           // pb_uart_buffer[9]  = Befehl
           // pb_uart_buffer[10] = Watchdog 1
@@ -801,67 +785,67 @@ where
           // pb_uart_buffer[18] = DPV1 Status 3
           // pb_uart_buffer[19] = User Parameter
 
-          if (!(m_rxBuffer[9] & ACTIVATE_WATCHDOG_)) // Watchdog aktivieren
+          if (!(self.rx_buffer[9] & ACTIVATE_WATCHDOG_)) // Watchdog aktivieren
           {
-            watchdog_act = true;
+            self.watchdog_act = true;
           }
           else
           {
-            watchdog_act = false;
+            self.watchdog_act = false;
           }
 
-          if (!(m_rxBuffer[9] & ACTIVATE_FREEZE_))
+          if (!(self.rx_buffer[9] & ACTIVATE_FREEZE_))
           {
-            freeze_act = true;
+            self.freeze_act = true;
           }
           else
           {
-            freeze_act = false;
+            self.freeze_act = false;
           }
 
-          if (!(m_rxBuffer[9] & ACTIVATE_SYNC_))
+          if (!(self.rx_buffer[9] & ACTIVATE_SYNC_))
           {
-            sync_act = true;
+            self.sync_act = true;
           }
           else
           {
-            sync_act = false;
+            self.sync_act = false;
           }
 
           // watchdog1 = m_pbUartRxBuffer[10];
           // watchdog2 = m_pbUartRxBuffer[11];
 
-          watchdog_time = (unsigned long)m_rxBuffer[10] * (unsigned long)m_rxBuffer[11] * 10;
+          self.watchdog_time = self.rx_buffer[10] * self.rx_buffer[11] * 10;
 
-          if (m_rxBuffer[12] > 10)
+          if (self.rx_buffer[12] > 10)
           {
-            minTSDR = m_rxBuffer[12] - 11;
+            self.min_tsdr = self.rx_buffer[12] - 11;
           }
           else
           {
-            minTSDR = 0;
+            self.min_tsdr = 0;
           }
 
-          m_config.identHigh = m_rxBuffer[13];
-          m_config.identLow = m_rxBuffer[14];
+           self.config.ident_high = self.rx_buffer[13];
+          self.config.ident_low = self.rx_buffer[14];
 
           // User Parameter groe�e = Laenge - DA, SA, FC, DSAP, SSAP, 7 Parameter Bytes
-          User_Para_size = PDU_size - 12;
+          User_Para_len = PDU_len - 12;
 
           // User Parameter einlesen
-          if (m_userPara.size() > 0)
+          if (m_userPara.len() > 0)
           {
-            for (cnt = 0; cnt < m_userPara.size(); cnt++)
-              m_userPara[cnt] = m_rxBuffer[16 + cnt];
+            for (cnt = 0; cnt < m_userPara.len(); cnt++)
+              m_userPara[cnt] = self.rx_buffer[16 + cnt];
           }
 
           // Gruppe einlesen
           // for (group = 0; pb_uart_buffer[15] != 0; group++) pb_uart_buffer[15]>>=1;
 
-          group = m_rxBuffer[15]; // wir speichern das gesamte Byte und sparen uns damit die Schleife. Ist unsere Gruppe gemeint, ist die Verundung von Gruppe und Empfang ungleich 0
+          group = self.rx_buffer[15]; // wir speichern das gesamte Byte und sparen uns damit die Schleife. Ist unsere Gruppe gemeint, ist die Verundung von Gruppe und Empfang ungleich 0
 
           // Kurzquittung
-          sendCmd(cmd_type::SC, 0, SAP_OFFSET, &m_txBuffer[0], 0);
+          sendCmd(cmd_type::SC, 0, SAP_OFFSET, &self.tx_buffer[0], 0);
           // m_printfunc("Quittung");
           if (DpSlaveState::Wprm == self.slave_state)
           {
@@ -882,21 +866,21 @@ where
         // Spezielles Format fuer max. 64/132 Byte IO
 
         Module_cnt = 0;
-        Vendor_Data_size = 0;
+        Vendor_Data_len = 0;
 
         // Je nach PDU Datengroesse mehrere Bytes auswerten
         // LE/LEr - (DA+SA+FC+DSAP+SSAP) = Anzahl Config Bytes
-        for (cnt = 0; cnt < m_rxBuffer[1] - 5; cnt++)
+        for (cnt = 0; cnt < self.rx_buffer[1] - 5; cnt++)
         {
-           match (m_rxBuffer[9 + cnt] & sap_check_config_request::CFG_DIRECTION) {
+           match (self.rx_buffer[9 + cnt] & sap_check_config_request::CFG_DIRECTION) {
             sap_check_config_request::CFG_INPUT => {
 
-            // Input_Data_size = (pb_uart_buffer[9+cnt] & CFG_BYTE_CNT_) + 1;
+            // Input_Data_len = (pb_uart_buffer[9+cnt] & CFG_BYTE_CNT_) + 1;
             // if (pb_uart_buffer[9+cnt] & CFG_WIDTH_ & CFG_WORD)
-            //   Input_Data_size = Input_Data_size*2;
+            //   Input_Data_len = Input_Data_len*2;
 
-            m_moduleData[Module_cnt][0] = (m_rxBuffer[9 + cnt] & CFG_BYTE_CNT_) + 1;
-            if (m_rxBuffer[9 + cnt] & CFG_WIDTH_ & CFG_WORD)
+            m_moduleData[Module_cnt][0] = (self.rx_buffer[9 + cnt] & CFG_BYTE_CNT_) + 1;
+            if (self.rx_buffer[9 + cnt] & CFG_WIDTH_ & CFG_WORD)
               m_moduleData[Module_cnt][0] = m_moduleData[Module_cnt][0] * 2;
 
             Module_cnt++;
@@ -905,12 +889,12 @@ where
 
             sap_check_config_request::CFG_OUTPUT => {
 
-            // Output_Data_size = (pb_uart_buffer[9+cnt] & CFG_BYTE_CNT_) + 1;
+            // Output_Data_len = (pb_uart_buffer[9+cnt] & CFG_BYTE_CNT_) + 1;
             // if (pb_uart_buffer[9+cnt] & CFG_WIDTH_ & CFG_WORD)
-            //   Output_Data_size = Output_Data_size*2;
+            //   Output_Data_len = Output_Data_len*2;
 
-            m_moduleData[Module_cnt][1] = (m_rxBuffer[9 + cnt] & CFG_BYTE_CNT_) + 1;
-            if (m_rxBuffer[9 + cnt] & CFG_WIDTH_ & CFG_WORD)
+            m_moduleData[Module_cnt][1] = (self.rx_buffer[9 + cnt] & CFG_BYTE_CNT_) + 1;
+            if (self.rx_buffer[9 + cnt] & CFG_WIDTH_ & CFG_WORD)
               m_moduleData[Module_cnt][1] = m_moduleData[Module_cnt][1] * 2;
 
             Module_cnt++;
@@ -919,17 +903,17 @@ where
 
             sap_check_config_request::CFG_INPUT_OUTPUT => {
 
-            // Input_Data_size = (pb_uart_buffer[9+cnt] & CFG_BYTE_CNT_) + 1;
-            // Output_Data_size = (pb_uart_buffer[9+cnt] & CFG_BYTE_CNT_) + 1;
+            // Input_Data_len = (pb_uart_buffer[9+cnt] & CFG_BYTE_CNT_) + 1;
+            // Output_Data_len = (pb_uart_buffer[9+cnt] & CFG_BYTE_CNT_) + 1;
             // if (pb_uart_buffer[9+cnt] & CFG_WIDTH_ & CFG_WORD)
             //{
-            //   Input_Data_size = Input_Data_size*2;
-            //   Output_Data_size = Output_Data_size*2;
+            //   Input_Data_len = Input_Data_len*2;
+            //   Output_Data_len = Output_Data_len*2;
             // }
 
-            m_moduleData[Module_cnt][0] = (m_rxBuffer[9 + cnt] & CFG_BYTE_CNT_) + 1;
-            m_moduleData[Module_cnt][1] = (m_rxBuffer[9 + cnt] & CFG_BYTE_CNT_) + 1;
-            if (m_rxBuffer[9 + cnt] & CFG_WIDTH_ & CFG_WORD)
+            m_moduleData[Module_cnt][0] = (self.rx_buffer[9 + cnt] & CFG_BYTE_CNT_) + 1;
+            m_moduleData[Module_cnt][1] = (self.rx_buffer[9 + cnt] & CFG_BYTE_CNT_) + 1;
+            if (self.rx_buffer[9 + cnt] & CFG_WIDTH_ & CFG_WORD)
             {
               m_moduleData[Module_cnt][0] = m_moduleData[Module_cnt][0] * 2;
               m_moduleData[Module_cnt][1] = m_moduleData[Module_cnt][1] * 2;
@@ -944,19 +928,19 @@ where
             // Spezielles Format
 
             // Herstellerspezifische Bytes vorhanden?
-            if (m_rxBuffer[9 + cnt] & CFG_SP_VENDOR_CNT_)
+            if (self.rx_buffer[9 + cnt] & CFG_SP_VENDOR_CNT_)
             {
               // Anzahl Herstellerdaten sichern
-              Vendor_Data_size += m_rxBuffer[9 + cnt] & CFG_SP_VENDOR_CNT_;
+              Vendor_Data_len += self.rx_buffer[9 + cnt] & CFG_SP_VENDOR_CNT_;
 
               // Vendor_Data[] = pb_uart_buffer[];
 
               // Anzahl von Gesamtanzahl abziehen
-              m_rxBuffer[1] -= m_rxBuffer[9 + cnt] & CFG_SP_VENDOR_CNT_;
+              self.rx_buffer[1] -= self.rx_buffer[9 + cnt] & CFG_SP_VENDOR_CNT_;
             }
 
             // I/O Daten
-            match (m_rxBuffer[9 + cnt] & sap_check_config_request::CFG_SP_DIRECTION)
+            match (self.rx_buffer[9 + cnt] & sap_check_config_request::CFG_SP_DIRECTION)
             {
                 sap_check_config_request::CFG_SP_VOID => { // Leeres Modul (1 Byte)
 
@@ -969,12 +953,12 @@ where
 
                   sap_check_config_request::CFG_SP_INPUT => { // Eingang (2 Byte)
 
-              // Input_Data_size = (pb_uart_buffer[10+cnt] & CFG_SP_BYTE_CNT_) + 1;
+              // Input_Data_len = (pb_uart_buffer[10+cnt] & CFG_SP_BYTE_CNT_) + 1;
               // if (pb_uart_buffer[10+cnt] & CFG_WIDTH_ & CFG_WORD)
-              //   Input_Data_size = Input_Data_size*2;
+              //   Input_Data_len = Input_Data_len*2;
 
-              m_moduleData[Module_cnt][0] = (m_rxBuffer[10 + cnt] & CFG_SP_BYTE_CNT_) + 1;
-              if (m_rxBuffer[10 + cnt] & CFG_WIDTH_ & CFG_WORD)
+              m_moduleData[Module_cnt][0] = (self.rx_buffer[10 + cnt] & CFG_SP_BYTE_CNT_) + 1;
+              if (self.rx_buffer[10 + cnt] & CFG_WIDTH_ & CFG_WORD)
                 m_moduleData[Module_cnt][0] = m_moduleData[Module_cnt][0] * 2;
 
               Module_cnt++;
@@ -985,40 +969,40 @@ where
 
                    sap_check_config_request::CFG_SP_OUTPUT => { // Ausgang (2 Byte)
 
-              // Output_Data_size = (pb_uart_buffer[10+cnt] & CFG_SP_BYTE_CNT_) + 1;
+              // Output_Data_len = (pb_uart_buffer[10+cnt] & CFG_SP_BYTE_CNT_) + 1;
               // if (pb_uart_buffer[10+cnt] & CFG_WIDTH_ & CFG_WORD)
-              //   Output_Data_size = Output_Data_size*2;
+              //   Output_Data_len = Output_Data_len*2;
 
-              m_moduleData[Module_cnt][1] = (m_rxBuffer[10 + cnt] & CFG_SP_BYTE_CNT_) + 1;
-              if (m_rxBuffer[10 + cnt] & CFG_WIDTH_ & CFG_WORD)
+              m_moduleData[Module_cnt][1] = (self.rx_buffer[10 + cnt] & CFG_SP_BYTE_CNT_) + 1;
+              if (self.rx_buffer[10 + cnt] & CFG_WIDTH_ & CFG_WORD)
                 m_moduleData[Module_cnt][1] = m_moduleData[Module_cnt][1] * 2;
 
-              Module_cnt++;
+              Module_cnt+=1;
 
-              cnt++; // Zweites Byte haben wir jetzt schon
+              cnt+=1; // Zweites Byte haben wir jetzt schon
 
                     }
 
                     sap_check_config_request::CFG_SP_INPUT_OUTPUT =>{ // Ein- und Ausgang (3 Byte)
 
               // Erst Ausgang...
-              // Output_Data_size = (pb_uart_buffer[10+cnt] & CFG_SP_BYTE_CNT_) + 1;
+              // Output_Data_len = (pb_uart_buffer[10+cnt] & CFG_SP_BYTE_CNT_) + 1;
               // if (pb_uart_buffer[10+cnt] & CFG_WIDTH_ & CFG_WORD)
-              //  Output_Data_size = Output_Data_size*2;
+              //  Output_Data_len = Output_Data_len*2;
 
               // Dann Eingang
-              // Input_Data_size = (pb_uart_buffer[11+cnt] & CFG_SP_BYTE_CNT_) + 1;
+              // Input_Data_len = (pb_uart_buffer[11+cnt] & CFG_SP_BYTE_CNT_) + 1;
               // if (pb_uart_buffer[11+cnt] & CFG_WIDTH_ & CFG_WORD)
-              //  Input_Data_size = Input_Data_size*2;
+              //  Input_Data_len = Input_Data_len*2;
 
               // Erst Ausgang...
-              m_moduleData[Module_cnt][0] = (m_rxBuffer[10 + cnt] & CFG_SP_BYTE_CNT_) + 1;
-              if (m_rxBuffer[10 + cnt] & CFG_WIDTH_ & CFG_WORD)
+              m_moduleData[Module_cnt][0] = (self.rx_buffer[10 + cnt] & CFG_SP_BYTE_CNT_) + 1;
+              if (self.rx_buffer[10 + cnt] & CFG_WIDTH_ & CFG_WORD)
                 m_moduleData[Module_cnt][0] = m_moduleData[Module_cnt][0] * 2;
 
               // Dann Eingang
-              m_moduleData[Module_cnt][1] = (m_rxBuffer[11 + cnt] & CFG_SP_BYTE_CNT_) + 1;
-              if (m_rxBuffer[11 + cnt] & CFG_WIDTH_ & CFG_WORD)
+              m_moduleData[Module_cnt][1] = (self.rx_buffer[11 + cnt] & CFG_SP_BYTE_CNT_) + 1;
+              if (self.rx_buffer[11 + cnt] & CFG_WIDTH_ & CFG_WORD)
                 m_moduleData[Module_cnt][1] = m_moduleData[Module_cnt][1] * 2;
 
               Module_cnt++;
@@ -1035,21 +1019,27 @@ where
 
         }   // For Ende
 
-        if (Vendor_Data_size != 0)
+        if (Vendor_Data_len != 0)
         {
           // Auswerten
         }
 
         // Bei Fehler -> CFG_FAULT_ in Diagnose senden
-        if ((m_VendorData.size() > 0) && (Module_cnt > m_moduleData.size() || Vendor_Data_size != m_VendorData.size()))
-          diagnose_status_1 |= CFG_FAULT_;
-        else if ((m_VendorData.size() == 0) && (Module_cnt > m_config.moduleCount))
-          diagnose_status_1 |= CFG_FAULT_;
+        if (self.vendor_data.len() > 0) && (Module_cnt > m_moduleData.len() || Vendor_Data_len != self.vendor_data.len())
+        {
+          diagnose_status_1 |= sap_diagnose_byte1::CFG_FAULT;
+        }
+        else if ((self.vendor_data.len() == 0) && (Module_cnt > m_config.moduleCount))
+        {
+          diagnose_status_1 |= sap_diagnose_byte1::CFG_FAULT;
+        }
         else
-          diagnose_status_1 &= ~(STATION_NOT_READY_ + CFG_FAULT_);
+        {
+          diagnose_status_1 &= !(sap_diagnose_byte1::STATION_NOT_READY + sap_diagnose_byte1::CFG_FAULT);
+        }
 
         // Kurzquittung
-        sendCmd(cmd_type::SC, 0, SAP_OFFSET, &m_txBuffer[0], 0);
+        sendCmd(cmd_type::SC, 0, SAP_OFFSET, &self.tx_buffer[0], 0);
 
         if (DpSlaveState::Wcfg == self.slave_state)
         {
@@ -1067,9 +1057,9 @@ where
     {
 
       // Status Abfrage
-      if (function_code == (REQUEST_ + FDL_STATUS))
+      if function_code == (fc_request::REQUEST + fc_request::FDL_STATUS)
       {
-        sendCmd(cmd_type::SD1, FDL_STATUS_OK, 0, &m_txBuffer[0], 0);
+        self.transmit_message_sd1(fc_response::FDL_STATUS_OK, 0);
       }
       // Master sendet Ausgangsdaten und verlangt Eingangsdaten (Send and Request Data)
       /*
@@ -1077,85 +1067,61 @@ where
                function_code == (REQUEST_ + FCV_ + FCB_ + SRD_HIGH))
       {
        */
-      else if (function_code == (REQUEST_ + SRD_HIGH) ||
-               function_code == (REQUEST_ + SRD_LOW))
+      else if function_code == (fc_request::REQUEST + fc_request::SRD_HIGH) ||
+               function_code == (fc_request::REQUEST + fc_request::SRD_LOW)
       {
-
-        /*
-        // Daten von Master einlesen
-        #if (OUTPUT_DATA_SIZE > 0)
-        for (cnt = 0; cnt < OUTPUT_DATA_SIZE; cnt++)
+        if self.sync_act && self.sync // write data in output_register when sync
         {
-          output_register[cnt] = pb_uart_buffer[cnt + 7];
-        }
-        #endif
-
-        // Daten fuer Master in Buffer schreiben
-        #if (INPUT_DATA_SIZE > 0)
-        for (cnt = 0; cnt < INPUT_DATA_SIZE; cnt++)
-        {
-          pb_uart_buffer[cnt + 7] = input_register[cnt];
-        }
-        #endif
-        */
-        /*
-        if((!sync)||(sync_act&&sync))//set outputs if no sync
-        {
-          m_datafunc(&(m_rxBuffer[7]),NULL);//outputs,inputs
-        }
-        if((!freeze)||(freeze_act&&freeze))//stops reading inputs if freeze= true
-        {
-          m_datafunc(NULL,&(m_pbUartTxBuffer[7]));//outputs,inputs
-        }
-        */
-        if (sync_act && sync) // write data in output_register when sync
-        {
-          for (cnt = 0; cnt < m_outputReg.size(); cnt++)
+          for (cnt = 0; cnt < m_outputReg.len(); cnt++)
           {
-            m_outputReg[cnt] = m_rxBuffer[cnt + 7];
+            m_outputReg[cnt] = self.rx_buffer[cnt + 7];
           }
         }
         else // normaler Betrieb
         {
-          for (cnt = 0; cnt < m_outputReg.size(); cnt++)
+          for (cnt = 0; cnt < m_outputReg.len(); cnt++)
           {
-            m_outputReg[cnt] = m_rxBuffer[cnt + 7];
+            m_outputReg[cnt] = self.rx_buffer[cnt + 7];
           }
           std::vector<uint8_t> unUsed;
           m_datafunc(m_outputReg, unUsed); // outputs,inputs
         }
 
-        if (freeze_act && freeze) // write input_register in telegram when freeze
+        if self.freeze_act && self.freeze // write input_register in telegram when freeze
         {
-          for (cnt = 0; cnt < m_inputReg.size(); cnt++)
+          for (cnt = 0; cnt < m_inputReg.len(); cnt++)
           {
-            m_txBuffer[cnt + 7] = m_inputReg[cnt];
+            self.tx_buffer[cnt + 7] = m_inputReg[cnt];
           }
         }
         else // normaler Betrieb
         {
           std::vector<uint8_t> unUsed;
           m_datafunc(unUsed, m_inputReg); // outputs,inputs
-          for (cnt = 0; cnt < m_inputReg.size(); cnt++)
+          for (cnt = 0; cnt < m_inputReg.len(); cnt++)
           {
-            m_txBuffer[cnt + 7] = m_inputReg[cnt];
+            self.tx_buffer[cnt + 7] = m_inputReg[cnt];
           }
         }
 
-        if (m_inputReg.size() > 0)
+        if self.input_data.len() > 0
         {
-          if (diagnose_status_1 & EXT_DIAG_)
-            sendCmd(cmd_type::SD2, DATA_HIGH, 0, &m_txBuffer[7], 0); // Diagnose Abfrage anfordern
+          if (self.diagnose_status_1 & sap_diagnose_byte1::EXT_DIAG) != 0
+          {
+            self.transmit_message_sd2(fc_response::DATA_HIGH, 0, &self.tx_buffer[7]); // Diagnose Abfrage anfordern
+          }
           else
-            sendCmd(cmd_type::SD2, DATA_LOW, 0, &m_txBuffer[7], m_inputReg.size()); // Daten senden
+          {
+            sendCmd(cmd_type::SD2, DATA_LOW, 0, &self.tx_buffer[7], m_inputReg.len()); // Daten senden
+          }
         }
         else
         {
           // TODO
           //  if (diagnose_status_1 & EXT_DIAG_ || (get_Address() & 0x80))
-          //    sendCmd(cmd_type::SD1, DATA_HIGH, 0, &m_txBuffer[7], 0); // Diagnose Abfrage anfordern
+          //    sendCmd(cmd_type::SD1, DATA_HIGH, 0, &self.tx_buffer[7], 0); // Diagnose Abfrage anfordern
           //  else
-          //    sendCmd(cmd_type::SC, 0, 0, &m_txBuffer[7], 0); // Kurzquittung
+          //    sendCmd(cmd_type::SC, 0, 0, &self.tx_buffer[7], 0); // Kurzquittung
         }
       }
     }
@@ -1163,7 +1129,8 @@ where
   }
   else // data not valid
   {
-    self.buffer.clear();
+    self.rx_len = 0;
   }
+}
 }
 }

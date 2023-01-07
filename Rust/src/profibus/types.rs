@@ -1,9 +1,9 @@
 #[derive(PartialEq, Eq)]
 #[allow(dead_code)]
 pub enum DpSlaveState {
-    Por = 1,    // Power on reset
-    Wrpm = 2,   // Wait for parameter
-    Wcfg = 3,   // Wait for config
+    Por = 1,   // Power on reset
+    Wrpm = 2,  // Wait for parameter
+    Wcfg = 3,  // Wait for config
     Dxchg = 4, // Data exchange
 }
 
@@ -30,8 +30,8 @@ pub mod cmd_type {
 #[allow(dead_code)]
 pub mod fc_request {
     pub const FDL_STATUS: u8 = 0x09; // SPS: Status Abfrage
-    pub const SDR_LOW: u8 = 0x0C; // SPS: Ausgaenge setzen, Eingaenge lesen
-    pub const SDR_HIGH: u8 = 0x0D; // SPS: Ausgaenge setzen, Eingaenge lesen
+    pub const SRD_LOW: u8 = 0x0C; // SPS: Ausgaenge setzen, Eingaenge lesen
+    pub const SRD_HIGH: u8 = 0x0D; // SPS: Ausgaenge setzen, Eingaenge lesen
     pub const FCV: u8 = 0x10;
     pub const FCB: u8 = 0x20;
     pub const REQUEST: u8 = 0x40;
@@ -55,6 +55,15 @@ pub enum SAP {
     SlaveDiagnostic = 60, // Master fordert Diagnose, Slave sendet Diagnose Daten
     SetPrm = 61,          // Master sendet Parameter, Slave sendet SC
     ChkCfg = 62,          // Master sendet Konfuguration, Slave sendet SC
+}
+
+#[allow(dead_code)]
+pub mod sap_global_control {
+    pub const CLEAR_DATA: u8 = 0x02;
+    pub const UNFREEZE: u8 = 0x04;
+    pub const FREEZE: u8 = 0x08;
+    pub const UNSYNC: u8 = 0x10;
+    pub const SYNC: u8 = 0x20;
 }
 
 #[allow(dead_code)]
