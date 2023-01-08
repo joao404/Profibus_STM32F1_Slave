@@ -661,9 +661,9 @@ void CProfibusSlave::rxFunc(void)
             // if (pb_uart_buffer[9+cnt] & CFG_WIDTH_ & CFG_WORD)
             //   Input_Data_size = Input_Data_size*2;
 
-            m_moduleData[Module_cnt][0] = (m_rxBuffer[9 + cnt] & CFG_BYTE_CNT_) + 1;
+            m_moduleData[Module_cnt].data[0] = (m_rxBuffer[9 + cnt] & CFG_BYTE_CNT_) + 1;
             if (m_rxBuffer[9 + cnt] & CFG_WIDTH_ & CFG_WORD)
-              m_moduleData[Module_cnt][0] = m_moduleData[Module_cnt][0] * 2;
+              m_moduleData[Module_cnt].data[0] = m_moduleData[Module_cnt].data[0] * 2;
 
             Module_cnt++;
 
@@ -675,9 +675,9 @@ void CProfibusSlave::rxFunc(void)
             // if (pb_uart_buffer[9+cnt] & CFG_WIDTH_ & CFG_WORD)
             //   Output_Data_size = Output_Data_size*2;
 
-            m_moduleData[Module_cnt][1] = (m_rxBuffer[9 + cnt] & CFG_BYTE_CNT_) + 1;
+            m_moduleData[Module_cnt].data[1] = (m_rxBuffer[9 + cnt] & CFG_BYTE_CNT_) + 1;
             if (m_rxBuffer[9 + cnt] & CFG_WIDTH_ & CFG_WORD)
-              m_moduleData[Module_cnt][1] = m_moduleData[Module_cnt][1] * 2;
+              m_moduleData[Module_cnt].data[1] = m_moduleData[Module_cnt].data[1] * 2;
 
             Module_cnt++;
 
@@ -693,12 +693,12 @@ void CProfibusSlave::rxFunc(void)
             //   Output_Data_size = Output_Data_size*2;
             // }
 
-            m_moduleData[Module_cnt][0] = (m_rxBuffer[9 + cnt] & CFG_BYTE_CNT_) + 1;
-            m_moduleData[Module_cnt][1] = (m_rxBuffer[9 + cnt] & CFG_BYTE_CNT_) + 1;
+            m_moduleData[Module_cnt].data[0] = (m_rxBuffer[9 + cnt] & CFG_BYTE_CNT_) + 1;
+            m_moduleData[Module_cnt].data[1] = (m_rxBuffer[9 + cnt] & CFG_BYTE_CNT_) + 1;
             if (m_rxBuffer[9 + cnt] & CFG_WIDTH_ & CFG_WORD)
             {
-              m_moduleData[Module_cnt][0] = m_moduleData[Module_cnt][0] * 2;
-              m_moduleData[Module_cnt][1] = m_moduleData[Module_cnt][1] * 2;
+              m_moduleData[Module_cnt].data[0] = m_moduleData[Module_cnt].data[0] * 2;
+              m_moduleData[Module_cnt].data[1] = m_moduleData[Module_cnt].data[1] * 2;
             }
 
             Module_cnt++;
@@ -726,8 +726,8 @@ void CProfibusSlave::rxFunc(void)
             {
             case CFG_SP_VOID: // Leeres Modul (1 Byte)
 
-              m_moduleData[Module_cnt][0] = 0;
-              m_moduleData[Module_cnt][1] = 0;
+              m_moduleData[Module_cnt].data[0] = 0;
+              m_moduleData[Module_cnt].data[1] = 0;
 
               Module_cnt++;
 
@@ -739,9 +739,9 @@ void CProfibusSlave::rxFunc(void)
               // if (pb_uart_buffer[10+cnt] & CFG_WIDTH_ & CFG_WORD)
               //   Input_Data_size = Input_Data_size*2;
 
-              m_moduleData[Module_cnt][0] = (m_rxBuffer[10 + cnt] & CFG_SP_BYTE_CNT_) + 1;
+              m_moduleData[Module_cnt].data[0] = (m_rxBuffer[10 + cnt] & CFG_SP_BYTE_CNT_) + 1;
               if (m_rxBuffer[10 + cnt] & CFG_WIDTH_ & CFG_WORD)
-                m_moduleData[Module_cnt][0] = m_moduleData[Module_cnt][0] * 2;
+                m_moduleData[Module_cnt].data[0] = m_moduleData[Module_cnt].data[0] * 2;
 
               Module_cnt++;
 
@@ -755,9 +755,9 @@ void CProfibusSlave::rxFunc(void)
               // if (pb_uart_buffer[10+cnt] & CFG_WIDTH_ & CFG_WORD)
               //   Output_Data_size = Output_Data_size*2;
 
-              m_moduleData[Module_cnt][1] = (m_rxBuffer[10 + cnt] & CFG_SP_BYTE_CNT_) + 1;
+              m_moduleData[Module_cnt].data[1] = (m_rxBuffer[10 + cnt] & CFG_SP_BYTE_CNT_) + 1;
               if (m_rxBuffer[10 + cnt] & CFG_WIDTH_ & CFG_WORD)
-                m_moduleData[Module_cnt][1] = m_moduleData[Module_cnt][1] * 2;
+                m_moduleData[Module_cnt].data[1] = m_moduleData[Module_cnt].data[1] * 2;
 
               Module_cnt++;
 
@@ -778,14 +778,14 @@ void CProfibusSlave::rxFunc(void)
               //  Input_Data_size = Input_Data_size*2;
 
               // Erst Ausgang...
-              m_moduleData[Module_cnt][0] = (m_rxBuffer[10 + cnt] & CFG_SP_BYTE_CNT_) + 1;
+              m_moduleData[Module_cnt].data[0] = (m_rxBuffer[10 + cnt] & CFG_SP_BYTE_CNT_) + 1;
               if (m_rxBuffer[10 + cnt] & CFG_WIDTH_ & CFG_WORD)
-                m_moduleData[Module_cnt][0] = m_moduleData[Module_cnt][0] * 2;
+                m_moduleData[Module_cnt].data[0] = m_moduleData[Module_cnt].data[0] * 2;
 
               // Dann Eingang
-              m_moduleData[Module_cnt][1] = (m_rxBuffer[11 + cnt] & CFG_SP_BYTE_CNT_) + 1;
+              m_moduleData[Module_cnt].data[1] = (m_rxBuffer[11 + cnt] & CFG_SP_BYTE_CNT_) + 1;
               if (m_rxBuffer[11 + cnt] & CFG_WIDTH_ & CFG_WORD)
-                m_moduleData[Module_cnt][1] = m_moduleData[Module_cnt][1] * 2;
+                m_moduleData[Module_cnt].data[1] = m_moduleData[Module_cnt].data[1] * 2;
 
               Module_cnt++;
 

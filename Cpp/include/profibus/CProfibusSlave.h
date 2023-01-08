@@ -185,6 +185,11 @@ private:
     // uint8_t Input_Data_size;
     // uint8_t Output_Data_size;
     uint8_t Module_cnt;
-    std::vector<uint8_t[2]> m_moduleData; // [][0] = Anzahl Eingaenge, [][1] = Anzahl Ausgaenge
+    
+    typedef struct
+    {
+        uint8_t data[2];
+    }ModulData;
+    std::vector<ModulData> m_moduleData; // [][0] = Anzahl Eingaenge, [][1] = Anzahl Ausgaenge
     uint8_t Vendor_Data_size;                // Anzahl eingelesene Herstellerspezifische Bytes
 };
