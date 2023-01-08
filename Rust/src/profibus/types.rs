@@ -1,5 +1,4 @@
 #[derive(PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum DpSlaveState {
     Por = 1,   // Power on reset
     Wrpm = 2,  // Wait for parameter
@@ -8,7 +7,6 @@ pub enum DpSlaveState {
 }
 
 #[derive(PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum StreamState {
     WaitSyn,
     WaitData,
@@ -17,7 +15,6 @@ pub enum StreamState {
     SendData,
 }
 
-#[allow(dead_code)]
 pub mod cmd_type {
     pub const SD1: u8 = 0x10; // Telegramm ohne Datenfeld
     pub const SD2: u8 = 0x68; // Daten Telegramm variabel
@@ -30,8 +27,8 @@ pub mod cmd_type {
 #[allow(dead_code)]
 pub mod fc_request {
     pub const FDL_STATUS: u8 = 0x09; // SPS: Status Abfrage
-    pub const SRD_LOW: u8 = 0x0C; // SPS: Ausgaenge setzen, Eingaenge lesen
-    pub const SRD_HIGH: u8 = 0x0D; // SPS: Ausgaenge setzen, Eingaenge lesen
+    pub const SRD_LOW: u8 = 0x0C; // SPS: Ausgaenge setzen, Eingaenge lesen, low priority
+    pub const SRD_HIGH: u8 = 0x0D; // SPS: Ausgaenge setzen, Eingaenge lesen, high priority
     pub const FCV: u8 = 0x10;
     pub const FCB: u8 = 0x20;
     pub const REQUEST: u8 = 0x40;
@@ -44,17 +41,16 @@ pub mod fc_response {
     pub const DATA_HIGH: u8 = 0x0A; // SLA: (Data high) Diagnose anstehend
 }
 
-#[derive(PartialEq, Eq)]
 #[allow(dead_code)]
-pub enum SAP {
-    SetSlaveAdr = 55,     // Master setzt Slave Adresse, Slave Anwortet mit SC
-    RdInp = 56,           // Master fordert Input Daten, Slave sendet Input Daten
-    RdOutp = 57,          // Master fordert Output Daten, Slave sendet Output Daten
-    GlobalControl = 58,   // Master Control, Slave Antwortet nicht
-    GetCfg = 59,          // Master fordert Konfig., Slave sendet Konfiguration
-    SlaveDiagnostic = 60, // Master fordert Diagnose, Slave sendet Diagnose Daten
-    SetPrm = 61,          // Master sendet Parameter, Slave sendet SC
-    ChkCfg = 62,          // Master sendet Konfuguration, Slave sendet SC
+pub mod sap {
+    pub const SET_SLAVE_ADR:u8 = 55;     // Master setzt Slave Adresse, Slave Anwortet mit SC
+    pub const RD_INP :u8 = 56;           // Master fordert Input Daten, Slave sendet Input Daten
+    pub const RD_OUTP :u8 = 57;          // Master fordert Output Daten, Slave sendet Output Daten
+    pub const GLOBAL_CONTROL :u8 = 58;   // Master Control, Slave Antwortet nicht
+    pub const GET_CFG :u8 = 59;          // Master fordert Konfig., Slave sendet Konfiguration
+    pub const SLAVE_DIAGNOSTIC :u8 = 60; // Master fordert Diagnose, Slave sendet Diagnose Daten
+    pub const SET_PRM :u8 = 61;          // Master sendet Parameter, Slave sendet SC
+    pub const CHK_CFG :u8 = 62;          // Master sendet Konfuguration, Slave sendet SC
 }
 
 #[allow(dead_code)]

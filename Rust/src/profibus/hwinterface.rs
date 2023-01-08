@@ -58,4 +58,6 @@ pub trait HwInterface {
     fn millis(&mut self) -> u32 {
         0
     }
+
+    fn data_processing(&self, _input: &mut[u8], _output: &[u8]) {}
 }

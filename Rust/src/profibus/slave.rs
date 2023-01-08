@@ -1,10 +1,8 @@
-use core::ops::Add;
-
 use super::hwinterface::HwInterface;
 use super::types::{
-    cmd_type, dpv1_status_byte1, dpv1_status_byte2, dpv1_status_byte3, fc_request, fc_response,
-    sap_check_config_request, sap_diagnose_byte1, sap_diagnose_byte2, sap_diagnose_byte3,
-    sap_diagnose_ext, sap_set_parameter_request, DpSlaveState, StreamState, SAP, sap_global_control
+    cmd_type, fc_request, fc_response, sap, sap_diagnose_byte1, sap_diagnose_byte2,
+    sap_diagnose_byte3, sap_diagnose_ext, sap_global_control, sap_set_parameter_request,
+    DpSlaveState, StreamState,
 };
 
 pub struct Config {
@@ -13,7 +11,6 @@ pub struct Config {
     addr: u8,
     counter_frequency: u32,
     baudrate: u32,
-    module_count: u8,
 }
 
 impl Config {
@@ -37,11 +34,6 @@ impl Config {
         self.baudrate = baudrate;
         self
     }
-
-    pub fn module_count(mut self, module_count: u8) -> Self {
-        self.module_count = module_count;
-        self
-    }
 }
 
 impl Default for Config {
@@ -52,7 +44,6 @@ impl Default for Config {
             addr: 126,
             counter_frequency: 0,
             baudrate: 500_000_u32,
-            module_count: 0,
         }
     }
 }
@@ -60,7 +51,7 @@ impl Default for Config {
 const SAP_OFFSET: u8 = 128;
 const BROADCAST_ADD: u8 = 127;
 const DEFAULT_ADD: u8 = 126;
-const MASTER_ADD_DEFAULT : u8 = 0xFF;
+const MASTER_ADD_DEFAULT: u8 = 0xFF;
 
 #[allow(dead_code)]
 pub struct PbDpSlave<
@@ -70,16 +61,16 @@ pub struct PbDpSlave<
     const OUTPUT_DATA_SIZE: usize,
     const USER_PARA_SIZE: usize,
     const EXTERN_DIAG_PARA_SIZE: usize,
-    const VENDOR_DATA_SIZE: usize,
+    const MODULE_CONFIG_SIZE: usize,
 > {
     config: Config,
     interface: T,
     tx_buffer: [u8; BUF_SIZE],
     rx_buffer: [u8; BUF_SIZE],
 
-    rx_len : usize,
-    tx_len : usize,
-    tx_pos : usize,
+    rx_len: usize,
+    tx_len: usize,
+    tx_pos: usize,
 
     slave_state: DpSlaveState,
     stream_state: StreamState,
@@ -90,13 +81,11 @@ pub struct PbDpSlave<
 
     timer_timeout_in_us: u32,
 
-    data_handling: impl Fn(&[u8], &[u8]),
-
     input_data: [u8; INPUT_DATA_SIZE],
     output_data: [u8; OUTPUT_DATA_SIZE],
     user_para: [u8; USER_PARA_SIZE],
     extern_diag_para: [u8; EXTERN_DIAG_PARA_SIZE],
-    vendor_data: [u8; VENDOR_DATA_SIZE],
+    module_config: [u8; MODULE_CONFIG_SIZE],
 
     diagnose_status_1: u8,
     master_addr: u8,
@@ -109,7 +98,7 @@ pub struct PbDpSlave<
     freeze: bool,
     sync: bool,
     watchdog_act: bool,
-    min_tsrd: u8,
+    min_tsdr: u8,
 
     freeze_act: bool,
     sync_act: bool,
@@ -125,7 +114,7 @@ impl<
         const OUTPUT_DATA_SIZE: usize,
         const USER_PARA_SIZE: usize,
         const EXTERN_DIAG_PARA_SIZE: usize,
-        const VENDOR_DATA_SIZE: usize,
+        const MODULE_CONFIG_SIZE: usize,
     >
     PbDpSlave<
         T,
@@ -134,13 +123,16 @@ impl<
         OUTPUT_DATA_SIZE,
         USER_PARA_SIZE,
         EXTERN_DIAG_PARA_SIZE,
-        VENDOR_DATA_SIZE,
+        MODULE_CONFIG_SIZE,
     >
 where
     T: HwInterface,
 {
-    pub fn new(mut config: Config, mut interface: T, data_handling: impl Fn(&[u8], &[u8])) -> Self {
-
+    pub fn new(
+        mut interface: T,
+        mut config: Config,
+        module_config: [u8; MODULE_CONFIG_SIZE],
+    ) -> Self {
         if 0 == config.counter_frequency {
             config.counter_frequency = 1_000_000_u32;
         }
@@ -168,7 +160,6 @@ where
         let output_data = [0; OUTPUT_DATA_SIZE];
         let user_para = [0; USER_PARA_SIZE];
         let extern_diag_para = [0; EXTERN_DIAG_PARA_SIZE];
-        let vendor_data = [0; VENDOR_DATA_SIZE];
 
         // Timer init
         interface.config_timer();
@@ -189,11 +180,11 @@ where
         Self {
             config,
             interface,
-            tx_buffer: [u8; BUF_SIZE],
-            rx_buffer: [u8; BUF_SIZE],
-            rx_len : 0,
-            tx_len : 0,
-            tx_pos : 0,
+            tx_buffer: [0; BUF_SIZE],
+            rx_buffer: [0; BUF_SIZE],
+            rx_len: 0,
+            tx_len: 0,
+            tx_pos: 0,
             slave_state: DpSlaveState::Por,
             stream_state: StreamState::WaitSyn,
             timeout_max_syn_time_in_us,
@@ -201,12 +192,11 @@ where
             timeout_max_tx_time_in_us,
             timeout_max_sdr_time_in_us,
             timer_timeout_in_us: timeout_max_syn_time_in_us,
-            data_handling,
             input_data,
             output_data,
             user_para,
             extern_diag_para,
-            vendor_data,
+            module_config,
             diagnose_status_1: sap_diagnose_byte1::STATION_NOT_READY,
             master_addr: 0xFF,
             group: 0,
@@ -216,7 +206,7 @@ where
             freeze: false,
             sync: false,
             watchdog_act: false,
-            min_tsrd: 0,
+            min_tsdr: 0,
             freeze_act: false,
             sync_act: false,
             last_connection_time: current_time,
@@ -248,7 +238,7 @@ where
     }
 
     pub fn handle_rx_byte(&mut self, data: u8) {
-      self.rx_buffer[self.rx_len] = data;
+        self.rx_buffer[self.rx_len] = data;
 
         // if we waited for TSYN, data can be saved
         if StreamState::WaitData == self.stream_state {
@@ -257,30 +247,27 @@ where
 
         // Einlesen erlaubt?
         if StreamState::GetData == self.stream_state {
-    if self.rx_len < self.rx_buffer.len()
-    {
-      self.rx_len+=1;
+            if self.rx_len < self.rx_buffer.len() {
+                self.rx_len += 1;
+            }
         }
-      }
         // Profibus Timer ruecksetzen
         self.interface.run_timer(self.timer_timeout_in_us);
     }
 
     pub fn tx_interrupt_handler(&mut self) {
-      if (tx_pos < tx_len)
-      {
-        // TX Buffer fuellen
-        self.interface.set_uart_value(tx_buffer[tx_pos]);
-        self.tx_pos+=1;
-        // m_printfunc(m_txCnt);
-      }
-      else{
-                self.interface.tx_rs485_disable();
-                // Alles gesendet, Interrupt wieder aus
-                self.interface.deactivate_tx_interrupt();
-                // clear Flag because we are not writing to buffer
-                self.interface.clear_tx_flag();
-            }
+        if self.tx_pos < self.tx_len {
+            // TX Buffer fuellen
+            self.interface.set_uart_value(self.tx_buffer[self.tx_pos]);
+            self.tx_pos += 1;
+            // m_printfunc(m_txCnt);
+        } else {
+            self.interface.tx_rs485_disable();
+            // Alles gesendet, Interrupt wieder aus
+            self.interface.deactivate_tx_interrupt();
+            // clear Flag because we are not writing to buffer
+            self.interface.clear_tx_flag();
+        }
 
         self.interface.run_timer(self.timer_timeout_in_us);
     }
@@ -310,8 +297,8 @@ where
                 self.interface.tx_rs485_enable();
                 self.interface.activate_tx_interrupt();
                 self.interface.set_uart_value(self.tx_buffer[self.tx_pos]);
-                self.tx_pos+=1;
-                }
+                self.tx_pos += 1;
+            }
             StreamState::SendData => {
                 self.stream_state = StreamState::WaitSyn;
                 self.timer_timeout_in_us = self.timeout_max_syn_time_in_us;
@@ -326,7 +313,8 @@ where
                 //TODO:
                 // std::vector<uint8_t> unUsed;
                 // m_datafunc(m_outputReg, unUsed); // outputs,inputs
-                data_handling([0;0], self.output_data);
+                self.interface
+                    .data_processing(&mut [0; 0], &self.output_data[..]);
             }
         }
 
@@ -337,7 +325,7 @@ where
         self.tx_buffer[0] = cmd_type::SD1;
         self.tx_buffer[1] = self.master_addr;
         self.tx_buffer[2] = self.config.addr + sap_offset;
-        self.tx_buffer[3] =function_code;
+        self.tx_buffer[3] = function_code;
         let checksum = self.calc_checksum(&self.tx_buffer[1..4]);
         self.tx_buffer[4] = checksum;
         self.tx_buffer[5] = cmd_type::ED;
@@ -345,51 +333,64 @@ where
         self.transmit();
     }
 
-    fn transmit_message_sd2(&mut self, function_code: u8, sap_offset: u8, pdu: &[u8]) {
+    fn transmit_message_sd2(
+        &mut self,
+        function_code: u8,
+        sap_offset: u8,
+        pdu1: &[u8],
+        pdu2: &[u8],
+    ) {
         self.tx_buffer[0] = cmd_type::SD2;
-        self.tx_buffer[1] = pdu.len();
-        self.tx_buffer[2] = pdu.len();
+        self.tx_buffer[1] = pdu1.len().to_le_bytes()[0] + pdu2.len().to_le_bytes()[0];
+        self.tx_buffer[2] = pdu1.len().to_le_bytes()[0] + pdu2.len().to_le_bytes()[0];
         self.tx_buffer[3] = cmd_type::SD2;
-      self.tx_buffer[4] = self.master_addr;
-      self.tx_buffer[5] = self.config.addr + sap_offset;
-      self.tx_buffer[6] =function_code;
-      self.tx_buffer[7..] = pdu;
-      let checksum = self.calc_checksum(&self.tx_buffer[4..(7+pdu.len())]);
-      self.tx_buffer[7 + pdu.len()] = checksum;
-      self.tx_buffer[8 + pdu.len()] = cmd_type::ED;
-      self.tx_len = 9 + pdu.len();
-      self.transmit();
+        self.tx_buffer[4] = self.master_addr;
+        self.tx_buffer[5] = self.config.addr + sap_offset;
+        self.tx_buffer[6] = function_code;
+        for i in 0..pdu1.len() {
+            self.tx_buffer[7 + i] = pdu1[i];
+        }
+        for i in 0..pdu2.len() {
+            self.tx_buffer[7 + i + pdu1.len()] = pdu2[i];
+        }
+        let checksum = self.calc_checksum(&self.tx_buffer[4..(7 + pdu1.len() + pdu2.len())]);
+        self.tx_buffer[7 + pdu1.len() + pdu2.len()] = checksum;
+        self.tx_buffer[8 + pdu1.len() + pdu2.len()] = cmd_type::ED;
+        self.tx_len = 9 + pdu1.len() + pdu2.len();
+        self.transmit();
     }
-
-    fn transmit_message_sd3(&mut self, function_code: u8, sap_offset: u8, pdu: &[u8;8]) {
-      self.tx_buffer[0] = cmd_type::SD3;
-      self.tx_buffer[1] = self.master_addr;
-      self.tx_buffer[2] = self.config.addr + sap_offset;
-      self.tx_buffer[3] =function_code;
-      self.tx_buffer[4..] = pdu;
-      let checksum = self.calc_checksum(&self.tx_buffer[4..9]);
-      self.tx_buffer[9] = checksum;
-      self.tx_buffer[10] = cmd_type::ED;
-      self.tx_len = 11;
-      self.transmit();
+    #[allow(dead_code)]
+    fn transmit_message_sd3(&mut self, function_code: u8, sap_offset: u8, pdu: &[u8; 8]) {
+        self.tx_buffer[0] = cmd_type::SD3;
+        self.tx_buffer[1] = self.master_addr;
+        self.tx_buffer[2] = self.config.addr + sap_offset;
+        self.tx_buffer[3] = function_code;
+        for i in 0..pdu.len() {
+            self.tx_buffer[4 + i] = pdu[i];
+        }
+        let checksum = self.calc_checksum(&self.tx_buffer[4..9]);
+        self.tx_buffer[9] = checksum;
+        self.tx_buffer[10] = cmd_type::ED;
+        self.tx_len = 11;
+        self.transmit();
     }
-
+    #[allow(dead_code)]
     fn transmit_message_sd4(&mut self, sap_offset: u8) {
-      self.tx_buffer[0] = cmd_type::SD4;
-      self.tx_buffer[1] = self.master_addr;
-      self.tx_buffer[2] = self.config.addr + sap_offset;
-      self.tx_len = 3;
-      self.transmit();
+        self.tx_buffer[0] = cmd_type::SD4;
+        self.tx_buffer[1] = self.master_addr;
+        self.tx_buffer[2] = self.config.addr + sap_offset;
+        self.tx_len = 3;
+        self.transmit();
     }
 
     fn transmit_message_sc(&mut self) {
-        self.tx_buffer[0]=cmd_type::SC;
+        self.tx_buffer[0] = cmd_type::SC;
         self.tx_len = 1;
         self.transmit();
     }
 
     fn transmit(&mut self) {
-      self.tx_pos = 0;
+        self.tx_pos = 0;
         if 0 != self.min_tsdr {
             self.stream_state = StreamState::WaitMinTsdr;
             self.timer_timeout_in_us = (self.config.counter_frequency * u32::from(self.min_tsdr))
@@ -402,16 +403,16 @@ where
             self.interface.wait_for_activ_transmission();
             self.interface.tx_rs485_enable();
             self.interface.activate_tx_interrupt();
-            self.interface.set_uart_value[self.tx_buffer[self.tx_pos]];
-            self.tx_pos+=1;
+            self.interface.set_uart_value(self.tx_buffer[self.tx_pos]);
+            self.tx_pos += 1;
         }
         self.interface.run_timer(self.timer_timeout_in_us);
     }
 
-    fn calc_checksum(data: &[u8]) -> u8 {
-        let checksum = 0;
-        for x in data{
-          checksum += *x;
+    fn calc_checksum(&self, data: &[u8]) -> u8 {
+        let mut checksum: u8 = 0;
+        for x in data {
+            checksum += *x;
         }
         checksum
     }
@@ -428,667 +429,495 @@ where
     }
 
     fn handle_receive(&mut self) {
-  let cnt : u8 = 0;
-  let process_data = false;
+        let mut process_data = false;
 
-  // Profibus Datentypen
-  let destination_add : u8 = 0;
-  let source_add : u8 = 0;
-  let function_code : u8 = 0;
-  let fcs_data : u8 = 0;     // Frame Check Sequence
-  let pdu_len : u8 = 0; // PDU Groesse
-  let dsap_data : u8 = 0;    // SAP Destination
-  let ssap_data : u8 = 0;    // SAP Source
+        // Profibus Datentypen
+        let mut destination_add: u8 = 0;
+        let mut source_add: u8 = 0;
+        let mut function_code: u8 = 0;
+        let mut pdu_len: u8 = 0; // PDU Groesse
 
-  match self.buffer[0]
-  {
-   cmd_type::SD1 => {
-    if 6 == self.rx_len
-    {
-    destination_add = self.rx_buffer[1];
-    source_add = self.rx_buffer[2];
-    function_code = self.rx_buffer[3];
-    fcs_data = self.rx_buffer[4];
+        match self.rx_buffer[0] {
+            cmd_type::SD1 => {
+                if 6 == self.rx_len {
+                    destination_add = self.rx_buffer[1];
+                    source_add = self.rx_buffer[2];
+                    function_code = self.rx_buffer[3];
+                    let fcs_data = self.rx_buffer[4]; // Frame Check Sequence
 
-    if self.check_destination_addr(destination_add)
-    {    
-      if fcs_data == self.calc_checksum(&self.rx_buffer[1..4])
-    {
-// FCV und FCB loeschen, da vorher überprüft
-function_code &= 0xCF;
-process_data = true;
-    }
-  }
-    }
-   }
-
-  cmd_type::SD2 => {
-    if self.rx_len == (self.rx_buffer[1] + 6usize)
-    {
-
-    pdu_len = self.rx_buffer[1]; // DA+SA+FC+Nutzdaten
-    destination_add = self.rx_buffer[4];
-    source_add = self.rx_buffer[5];
-    function_code = self.rx_buffer[6];
-    fcs_data = self.rx_buffer[pdu_len + 4usize];
-
-    if self.check_destination_addr(destination_add)
-    {    
-      if fcs_data == self.calc_checksum(&self.rx_buffer[4..(7+pdu_len)])
-    {
-// FCV und FCB loeschen, da vorher überprüft
-function_code &= 0xCF;
-process_data = true;
-    }
-  }
-  }
-
- }
-
-  cmd_type::SD3 => {
-
-    if 11 == self.rx_len
-{
-    pdu_len = 8; // DA+SA+FC+Nutzdaten
-    destination_add = self.rx_len[1];
-    source_add = self.rx_len[2];
-    function_code = self.rx_len[3];
-    fcs_data = self.rx_len[9];
-
-    if self.check_destination_addr(destination_add)
-    {    
-      if fcs_data == self.calc_checksum(&self.rx_buffer[4..9])
-    {
-// FCV und FCB loeschen, da vorher überprüft
-function_code &= 0xCF;
-process_data = true;
-    }
-  }
-}
-  }
-
-  cmd_type::SD4 => {
-
-    if 3 == self.rx_len
-{
-    destination_add = self.rx_buffer[1];
-    source_add = self.rx_buffer[2];
-
-    if self.check_destination_addr(destination_add)
-    {
-      //TODO  
-    }
-}
-  } 
-}// match self.buffer[0]
-
-  if process_data
-  {
-    self.last_connection_time = self.interface.millis(); // letzte Zeit eines Telegramms sichern
-
-    self.master_addr = source_add; // Master Adresse ist Source Adresse
-
-    if (function_code & 0x30) == fc_request::FCB // Startbedingung
-    {
-      self.fcv_act = true;
-      self.fcb_last = true;
-    }
-    else if self.fcv_act
-    {
-      // Adresse wie vorher?
-      if source_add != self.source_add_last
-      {
-        // neue Verbindung und damit FCV ungültig
-        fcv_act = false;
-      }
-      else if (function_code & fc_request::FCB) == self.fcb_last // FCB ist gleich geblieben
-      {
-        // Nachricht wiederholen
-        self.transmit();
-        // die Nachricht liegt noch im Speicher
-      }
-      else // Speichern des neuen FCB
-      {
-        self.fcb_last = !self.fcb_last; // das negierte bit speichern, da sonst die vorherige Bedingung angeschlagen hätte
-      }
-    }
-    else // wenn es keine Startbedingung gibt und wir nicht eingeschaltet sind, können wir fcv ausschalten
-    {
-      self.fcv_act = false;
-    }
-
-    // letzte Adresse sichern
-    self.source_add_last = source_add;
-
-    // Service Access Point erkannt?
-    if (destination_add & 0x80) && (source_add & 0x80)
-    {
-      dsap_data = self.rx_buffer[7];
-      ssap_data = self.rx_buffer[8];
-
-      // Ablauf Reboot:
-      // 1) SSAP 62 -> DSAP 60 (Get Diagnostics Request)
-      // 2) SSAP 62 -> DSAP 61 (Set Parameters Request)
-      // 3) SSAP 62 -> DSAP 62 (Check Config Request)
-      // 4) SSAP 62 -> DSAP 60 (Get Diagnostics Request)
-      // 5) Data Exchange Request (normaler Zyklus)
-
-      // Siehe Felser 8/2009 Kap. 4.1
-      // m_printfunc((int)DSAP_data);
-      match dsap_data
-      {
-      SAP::SetSlaveAdr => { // Set Slave Address (SSAP 62 -> DSAP 55)
-                              // Siehe Felser 8/2009 Kap. 4.2
-
-        // Nur im Zustand "Wait Parameter" (WPRM) moeglich
-
-        if DpSlaveState::Wrpm == self.slave_state
-        {
-          // adresse ändern
-          // new_addr = pb_uart_buffer[9];
-          // IDENT_HIGH_BYTE = m_pbUartRxBuffer[10];
-          // IDENT_LOW_BYTE = m_pbUartRxBuffer[11];
-          // if (pb_uart_buffer[12] & 0x01) adress_aenderung_sperren = true;
-        }
-
-        self.transmit_message_sc();
-     }
-
-     SAP::GlobalControl => { // Global Control Request (SSAP 62 -> DSAP 58)
-                               // Siehe Felser 8/2009 Kap. 4.6.2
-
-        // Wenn "Clear Data" high, dann SPS CPU auf "Stop"
-        if (self.rx_buffer[9] & sap_global_control::CLEAR_DATA) != 0
-        {
-          self.interface.error_led_on(); // Status "SPS nicht bereit"
-        }
-        else
-        {
-          self.interface.error_led_off(); // Status "SPS OK"
-        }
-
-        // Gruppe berechnen
-        // for (cnt = 0;  pb_uart_buffer[10] != 0; cnt++) pb_uart_buffer[10]>>=1;
-
-        // Wenn Befehl fuer uns ist
-        if (self.rx_buffer[10] & self.group) != 0 //(cnt == group)
-        {
-          if (self.rx_buffer[9] & sap_global_control::UNFREEZE) != 0
-          {
-            // FREEZE Zustand loeschen
-            self.freeze = false;
-            // m_datafunc(NULL,&(self.tx_buffer[7]));//outputs,inputs
-          }
-          else if (self.rx_buffer[9] & sap_global_control::UNSYNC) != 0
-          {
-            // SYNC Zustand loeschen
-            self.sync = false;
-            self.data_handling([0;0], self.output_data);
-          }
-          else if (self.rx_buffer[9] & sap_global_control::FREEZE) != 0
-          {
-            // Eingaenge nicht mehr neu einlesen
-            if (self.freeze)
-            {
-              data_handling(self.input_data, [0;0]);
+                    if self.check_destination_addr(destination_add) {
+                        if fcs_data == self.calc_checksum(&self.rx_buffer[1..4]) {
+                            // FCV und FCB loeschen, da vorher überprüft
+                            function_code &= 0xCF;
+                            process_data = true;
+                        }
+                    }
+                }
             }
-            self.freeze = true;
-          }
-          else if (self.rx_buffer[9] & sap_global_control::SYNC) != 0
-          {
-            // Ausgaenge nur bei SYNC Befehl setzen
 
-            if self.sync
-            {
-              data_handling([0;0], self.output_data);
+            cmd_type::SD2 => {
+                if self.rx_len == usize::from(self.rx_buffer[1] + 6) {
+                    pdu_len = self.rx_buffer[1]; // DA+SA+FC+Nutzdaten
+                    destination_add = self.rx_buffer[4];
+                    source_add = self.rx_buffer[5];
+                    function_code = self.rx_buffer[6];
+                    let fcs_data = self.rx_buffer[usize::from(pdu_len + 4)]; // Frame Check Sequence
+
+                    if self.check_destination_addr(destination_add) {
+                        if fcs_data
+                            == self.calc_checksum(&self.rx_buffer[4..usize::from(7 + pdu_len)])
+                        {
+                            // FCV und FCB loeschen, da vorher überprüft
+                            function_code &= 0xCF;
+                            process_data = true;
+                        }
+                    }
+                }
             }
-            self.sync = true;
-          }
-        }
 
-     }
+            cmd_type::SD3 => {
+                if 11 == self.rx_len {
+                    pdu_len = 8; // DA+SA+FC+Nutzdaten
+                    destination_add = self.rx_buffer[1];
+                    source_add = self.rx_buffer[2];
+                    function_code = self.rx_buffer[3];
+                    let fcs_data = self.rx_buffer[9]; // Frame Check Sequence
 
-     SAP::SlaveDiagnostic => { // Get Diagnostics Request (SSAP 62 -> DSAP 60)
-                                // Siehe Felser 8/2009 Kap. 4.5.2
+                    if self.check_destination_addr(destination_add) {
+                        if fcs_data == self.calc_checksum(&self.rx_buffer[4..9]) {
+                            // FCV und FCB loeschen, da vorher überprüft
+                            function_code &= 0xCF;
+                            process_data = true;
+                        }
+                    }
+                }
+            }
 
-        // Nach dem Erhalt der Diagnose wechselt der DP-Slave vom Zustand
-        // "Power on Reset" (POR) in den Zustand "Wait Parameter" (WPRM)
+            cmd_type::SD4 => {
+                if 3 == self.rx_len {
+                    destination_add = self.rx_buffer[1];
+                    source_add = self.rx_buffer[2];
 
-        // Am Ende der Initialisierung (Zustand "Data Exchange" (DXCHG))
-        // sendet der Master ein zweites mal ein Diagnostics Request um die
-        // korrekte Konfiguration zu pruefen
-        // m_printfunc((int)function_code);
-        // m_printfunc(REQUEST_ + SRD_HIGH);
-        if (function_code == (fc_request::REQUEST + fc_request::SRD_HIGH)) ||
-            (function_code == (fc_request::REQUEST + fc_request::SRD_LOW))
-        {
-          // Erste Diagnose Abfrage (Aufruf Telegramm)
-          let diagnose_data:[u8;EXTERN_DIAG_PARA_SIZE + 8];
-          diagnose_data[0] = ssap_data;         // Ziel SAP Master
-          diagnose_data[1] = dsap_data;         // Quelle SAP Slave
-          diagnose_data[2] = diagnose_status_1; // Status 1
-          if DpSlaveState::Por == slave_status
-          {
-            diagnose_data[3] = sap_diagnose_byte2::STATUS_2_DEFAULT + sap_diagnose_byte2::PRM_REQ + 0x04; // Status 2
-            diagnose_data[5] = MASTER_ADD_DEFAULT;                 // Adresse Master
-          }
-          else
-          {
-            diagnose_data[3] = sap_diagnose_byte2::STATUS_2_DEFAULT + 0x04;  // Status 2
-            diagnose_data[5] = master_addr - SAP_OFFSET; // Adresse Master
-          }
+                    if self.check_destination_addr(destination_add) {
+                        //TODO
+                    }
+                }
+            }
 
-          if self.watchdog_act
-          {
-            diagnose_data[3] |= sap_diagnose_byte2::WD_ON;
-          }
+            _ => (),
+        } // match self.buffer[0]
 
-          if self.freeze_act
-          {
-            diagnose_data[3] |= sap_diagnose_byte2::FREEZE_MODE;
-          }
+        if process_data {
+            self.last_connection_time = self.interface.millis(); // letzte Zeit eines Telegramms sichern
 
-          if self.sync_act
-          {
-            diagnose_data[3] |= sap_diagnose_byte2::SYNC_MODE;
-          }
+            self.master_addr = source_add; // Master Adresse ist Source Adresse
 
-          diagnose_data[4] = sap_diagnose_byte3::DIAG_SIZE_OK;       // Status 3
-          diagnose_data[6] = self.config.ident_high; // Ident high
-          diagnose_data[7] = self.config.ident_low;  // Ident low
-          if self.extern_diag_para.len() > 0
-          {
-            diagnose_data[8] = sap_diagnose_ext::EXT_DIAG_GERAET + self.extern_diag_para.len() + 1; // Diagnose (Typ und Anzahl Bytes)
-            diagnose_data[9..] = self.extern_diag_para;
-            self.transmit_message_sd2(fc_response::DATA_LOW, SAP_OFFSET, &diagnose_data);
-          }
-          else
-          {
-            self.transmit_message_sd2(fc_response::DATA_LOW, SAP_OFFSET, &diagnose_data[..8]);
-          }
-        }
+            if (function_code & 0x30) == fc_request::FCB
+            // Startbedingung
+            {
+                self.fcv_act = true;
+                self.fcb_last = true;
+            } else if self.fcv_act {
+                // Adresse wie vorher?
+                if source_add != self.source_add_last {
+                    // neue Verbindung und damit FCV ungültig
+                    self.fcv_act = false;
+                } else if ((function_code & fc_request::FCB) != 0) == self.fcb_last
+                // FCB ist gleich geblieben
+                {
+                    // Nachricht wiederholen
+                    self.transmit();
+                    // die Nachricht liegt noch im Speicher
+                } else
+                // Speichern des neuen FCB
+                {
+                    self.fcb_last = !self.fcb_last; // das negierte bit speichern, da sonst die vorherige Bedingung angeschlagen hätte
+                }
+            } else
+            // wenn es keine Startbedingung gibt und wir nicht eingeschaltet sind, können wir fcv ausschalten
+            {
+                self.fcv_act = false;
+            }
 
-        // Status aendern
-        if (DpSlaveState::Por == self.slave_state)
-        {
-          self.slave_state = DpSlaveState::Wprm;
-        }
+            // letzte Adresse sichern
+            self.source_add_last = source_add;
 
-     }
+            // Service Access Point erkannt?
+            if ((destination_add & 0x80) != 0) && ((source_add & 0x80) != 0) {
+                let dsap_data = self.rx_buffer[7]; // sap destination
+                let ssap_data = self.rx_buffer[8]; // sap source
 
-     SAP::SetPrm => { // Set Parameters Request (SSAP 62 -> DSAP 61)
+                // Ablauf Reboot:
+                // 1) SSAP 62 -> DSAP 60 (Get Diagnostics Request)
+                // 2) SSAP 62 -> DSAP 61 (Set Parameters Request)
+                // 3) SSAP 62 -> DSAP 62 (Check Config Request)
+                // 4) SSAP 62 -> DSAP 60 (Get Diagnostics Request)
+                // 5) Data Exchange Request (normaler Zyklus)
+
+                // Siehe Felser 8/2009 Kap. 4.1
+                // m_printfunc((int)DSAP_data);
+                match dsap_data {
+                    sap::SET_SLAVE_ADR => {
+                        // Set Slave Address (SSAP 62 -> DSAP 55)
+                        // Siehe Felser 8/2009 Kap. 4.2
+
+                        // Nur im Zustand "Wait Parameter" (WPRM) moeglich
+
+                        if DpSlaveState::Wrpm == self.slave_state {
+                            // adresse ändern
+                            // new_addr = pb_uart_buffer[9];
+                            // IDENT_HIGH_BYTE = m_pbUartRxBuffer[10];
+                            // IDENT_LOW_BYTE = m_pbUartRxBuffer[11];
+                            // if (pb_uart_buffer[12] & 0x01) adress_aenderung_sperren = true;
+                        }
+
+                        self.transmit_message_sc();
+                    }
+
+                    sap::GLOBAL_CONTROL => {
+                        // Global Control Request (SSAP 62 -> DSAP 58)
+                        // Siehe Felser 8/2009 Kap. 4.6.2
+
+                        // Wenn "Clear Data" high, dann SPS CPU auf "Stop"
+                        if (self.rx_buffer[9] & sap_global_control::CLEAR_DATA) != 0 {
+                            self.interface.error_led_on(); // Status "SPS nicht bereit"
+                        } else {
+                            self.interface.error_led_off(); // Status "SPS OK"
+                        }
+
+                        // Gruppe berechnen
+                        // for (cnt = 0;  pb_uart_buffer[10] != 0; cnt++) pb_uart_buffer[10]>>=1;
+
+                        // Wenn Befehl fuer uns ist
+                        if (self.rx_buffer[10] & self.group) != 0
+                        //(cnt == group)
+                        {
+                            if (self.rx_buffer[9] & sap_global_control::UNFREEZE) != 0 {
+                                // FREEZE Zustand loeschen
+                                self.freeze = false;
+                                // m_datafunc(NULL,&(self.tx_buffer[7]));//outputs,inputs
+                            } else if (self.rx_buffer[9] & sap_global_control::UNSYNC) != 0 {
+                                // SYNC Zustand loeschen
+                                self.sync = false;
+                                self.interface
+                                    .data_processing(&mut [0; 0], &self.output_data[..]);
+                            } else if (self.rx_buffer[9] & sap_global_control::FREEZE) != 0 {
+                                // Eingaenge nicht mehr neu einlesen
+                                if self.freeze {
+                                    self.interface
+                                        .data_processing(&mut self.input_data[..], &[0; 0]);
+                                }
+                                self.freeze = true;
+                            } else if (self.rx_buffer[9] & sap_global_control::SYNC) != 0 {
+                                // Ausgaenge nur bei SYNC Befehl setzen
+
+                                if self.sync {
+                                    self.interface
+                                        .data_processing(&mut [0; 0], &self.output_data[..]);
+                                }
+                                self.sync = true;
+                            }
+                        }
+                    }
+
+                    sap::SLAVE_DIAGNOSTIC => {
+                        // Get Diagnostics Request (SSAP 62 -> DSAP 60)
+                        // Siehe Felser 8/2009 Kap. 4.5.2
+
+                        // Nach dem Erhalt der Diagnose wechselt der DP-Slave vom Zustand
+                        // "Power on Reset" (POR) in den Zustand "Wait Parameter" (WPRM)
+
+                        // Am Ende der Initialisierung (Zustand "Data Exchange" (DXCHG))
+                        // sendet der Master ein zweites mal ein Diagnostics Request um die
+                        // korrekte Konfiguration zu pruefen
+                        // m_printfunc((int)function_code);
+                        // m_printfunc(REQUEST_ + SRD_HIGH);
+                        if (function_code == (fc_request::REQUEST + fc_request::SRD_HIGH))
+                            || (function_code == (fc_request::REQUEST + fc_request::SRD_LOW))
+                        {
+                            // Erste Diagnose Abfrage (Aufruf Telegramm)
+                            let mut diagnose_data: [u8; (8)] = [0; 8];
+                            diagnose_data[0] = ssap_data; // Ziel SAP Master
+                            diagnose_data[1] = dsap_data; // Quelle SAP Slave
+                            diagnose_data[2] = self.diagnose_status_1; // Status 1
+                            if DpSlaveState::Por == self.slave_state {
+                                diagnose_data[3] = sap_diagnose_byte2::STATUS_2_DEFAULT
+                                    + sap_diagnose_byte2::PRM_REQ
+                                    + 0x04; // Status 2
+                                diagnose_data[5] = MASTER_ADD_DEFAULT; // Adresse Master
+                            } else {
+                                diagnose_data[3] = sap_diagnose_byte2::STATUS_2_DEFAULT + 0x04; // Status 2
+                                diagnose_data[5] = self.master_addr - SAP_OFFSET;
+                                // Adresse Master
+                            }
+
+                            if self.watchdog_act {
+                                diagnose_data[3] |= sap_diagnose_byte2::WD_ON;
+                            }
+
+                            if self.freeze_act {
+                                diagnose_data[3] |= sap_diagnose_byte2::FREEZE_MODE;
+                            }
+
+                            if self.sync_act {
+                                diagnose_data[3] |= sap_diagnose_byte2::SYNC_MODE;
+                            }
+
+                            diagnose_data[4] = sap_diagnose_byte3::DIAG_SIZE_OK; // Status 3
+                            diagnose_data[6] = self.config.ident_high; // Ident high
+                            diagnose_data[7] = self.config.ident_low; // Ident low
+                            if self.extern_diag_para.len() > 0 {
+                                self.extern_diag_para[0] = sap_diagnose_ext::EXT_DIAG_GERAET
+                                    + self.extern_diag_para.len().to_le_bytes()[0]; // Diagnose (Typ und Anzahl Bytes)
+                                let mut buf: [u8; EXTERN_DIAG_PARA_SIZE] =
+                                    [0; EXTERN_DIAG_PARA_SIZE];
+                                buf.copy_from_slice(&self.extern_diag_para[..]);
+                                self.transmit_message_sd2(
+                                    fc_response::DATA_LOW,
+                                    SAP_OFFSET,
+                                    &diagnose_data[..],
+                                    &buf,
+                                );
+                            } else {
+                                self.transmit_message_sd2(
+                                    fc_response::DATA_LOW,
+                                    SAP_OFFSET,
+                                    &diagnose_data,
+                                    &[0; 0],
+                                );
+                            }
+                        }
+
+                        // Status aendern
+                        if DpSlaveState::Por == self.slave_state {
+                            self.slave_state = DpSlaveState::Wrpm;
+                        }
+                    }
+
+                    sap::SET_PRM => {
+                        // Set Parameters Request (SSAP 62 -> DSAP 61)
                         // Siehe Felser 8/2009 Kap. 4.3.1
 
-        // Nach dem Erhalt der Parameter wechselt der DP-Slave vom Zustand
-        // "Wait Parameter" (WPRM) in den Zustand "Wait Configuration" (WCFG)
-        // m_printfunc((int)pb_uart_buffer[13]);
-        // m_printfunc(":");
-        // m_printfunc((int)pb_uart_buffer[14]);
-        // Nur Daten fuer unser Geraet akzeptieren
-        // m_printfunc((int)pb_uart_buffer[13]);
-        // m_printfunc((int)IDENT_HIGH_BYTE);
-        // m_printfunc((int)pb_uart_buffer[14]);
-        // m_printfunc((int)IDENT_LOW_BYTE);
-        if ((self.rx_buffer[13] == self.config.ident_high) && (self.rx_buffer[14] == self.config.ident_low))
-        {
-          // pb_uart_buffer[9]  = Befehl
-          // pb_uart_buffer[10] = Watchdog 1
-          // pb_uart_buffer[11] = Watchdog 2
-          // pb_uart_buffer[12] = Min TSDR
-          // pb_uart_buffer[13] = Ident H
-          // pb_uart_buffer[14] = Ident L
-          // pb_uart_buffer[15] = Gruppe
-          // pb_uart_buffer[16] = User Parameter
+                        // Nach dem Erhalt der Parameter wechselt der DP-Slave vom Zustand
+                        // "Wait Parameter" (WPRM) in den Zustand "Wait Configuration" (WCFG)
+                        if (self.rx_buffer[13] == self.config.ident_high)
+                            && (self.rx_buffer[14] == self.config.ident_low)
+                        {
+                            // pb_uart_buffer[9]  = Befehl
+                            // pb_uart_buffer[10] = Watchdog 1
+                            // pb_uart_buffer[11] = Watchdog 2
+                            // pb_uart_buffer[12] = Min TSDR
+                            // pb_uart_buffer[13] = Ident H
+                            // pb_uart_buffer[14] = Ident L
+                            // pb_uart_buffer[15] = Gruppe
+                            // pb_uart_buffer[16] = User Parameter
 
-          // Bei DPV1 Unterstuetzung:
-          // pb_uart_buffer[16] = DPV1 Status 1
-          // pb_uart_buffer[17] = DPV1 Status 2
-          // pb_uart_buffer[18] = DPV1 Status 3
-          // pb_uart_buffer[19] = User Parameter
+                            // Bei DPV1 Unterstuetzung:
+                            // pb_uart_buffer[16] = DPV1 Status 1
+                            // pb_uart_buffer[17] = DPV1 Status 2
+                            // pb_uart_buffer[18] = DPV1 Status 3
+                            // pb_uart_buffer[19] = User Parameter
 
-          if (!(self.rx_buffer[9] & ACTIVATE_WATCHDOG_)) // Watchdog aktivieren
-          {
-            self.watchdog_act = true;
-          }
-          else
-          {
-            self.watchdog_act = false;
-          }
+                            if (self.rx_buffer[9] & sap_set_parameter_request::ACTIVATE_WATCHDOG)
+                                != 0
+                            // Watchdog aktivieren
+                            {
+                                self.watchdog_act = true;
+                            } else {
+                                self.watchdog_act = false;
+                            }
 
-          if (!(self.rx_buffer[9] & ACTIVATE_FREEZE_))
-          {
-            self.freeze_act = true;
-          }
-          else
-          {
-            self.freeze_act = false;
-          }
+                            if (self.rx_buffer[9] & sap_set_parameter_request::ACTIVATE_FREEZE) != 0
+                            {
+                                self.freeze_act = true;
+                            } else {
+                                self.freeze_act = false;
+                            }
 
-          if (!(self.rx_buffer[9] & ACTIVATE_SYNC_))
-          {
-            self.sync_act = true;
-          }
-          else
-          {
-            self.sync_act = false;
-          }
+                            if (self.rx_buffer[9] & sap_set_parameter_request::ACTIVATE_SYNC) != 0 {
+                                self.sync_act = true;
+                            } else {
+                                self.sync_act = false;
+                            }
 
-          // watchdog1 = m_pbUartRxBuffer[10];
-          // watchdog2 = m_pbUartRxBuffer[11];
+                            // watchdog1 = m_pbUartRxBuffer[10];
+                            // watchdog2 = m_pbUartRxBuffer[11];
 
-          self.watchdog_time = self.rx_buffer[10] * self.rx_buffer[11] * 10;
+                            self.watchdog_time =
+                                u32::from(self.rx_buffer[10]) * u32::from(self.rx_buffer[11]) * 10;
 
-          if (self.rx_buffer[12] > 10)
-          {
-            self.min_tsrd = self.rx_buffer[12] - 11;
-          }
-          else
-          {
-            self.min_tsrd = 0;
-          }
+                            if self.rx_buffer[12] > 10 {
+                                self.min_tsdr = self.rx_buffer[12] - 11;
+                            } else {
+                                self.min_tsdr = 0;
+                            }
 
-           self.config.ident_high = self.rx_buffer[13];
-          self.config.ident_low = self.rx_buffer[14];
+                            self.config.ident_high = self.rx_buffer[13];
+                            self.config.ident_low = self.rx_buffer[14];
 
-          // User Parameter groe�e = Laenge - DA, SA, FC, DSAP, SSAP, 7 Parameter Bytes
-          USER_PARA_SIZE = PDU_len - 12;
+                            // User Parameter einlesen
+                            if self.user_para.len() > 0 {
+                                // User Parameter groesse = Laenge - DA, SA, FC, DSAP, SSAP, 7 Parameter Bytes
+                                let user_para_len: usize = usize::from(pdu_len) - 12;
+                                if user_para_len <= self.user_para.len() {
+                                    for i in 0..user_para_len {
+                                        self.user_para[i] = self.rx_buffer[16 + i];
+                                    }
+                                }
+                            }
 
-          // User Parameter einlesen
-          if (self.user_para.len() > 0)
-          {
-            user_para = self.rx_buffer[16..(16 + self.user_para.len())];
-          }
+                            self.group = self.rx_buffer[15]; // wir speichern das gesamte Byte und sparen uns damit die Schleife. Ist unsere Gruppe gemeint, ist die Verundung von Gruppe und Empfang ungleich 0
 
-          // Gruppe einlesen
-          // for (group = 0; pb_uart_buffer[15] != 0; group++) pb_uart_buffer[15]>>=1;
+                            // Kurzquittung
+                            self.transmit_message_sc();
+                            // m_printfunc("Quittung");
+                            if DpSlaveState::Wrpm == self.slave_state {
+                                self.slave_state = DpSlaveState::Wcfg;
+                            }
+                        }
+                    }
 
-          self.group = self.rx_buffer[15]; // wir speichern das gesamte Byte und sparen uns damit die Schleife. Ist unsere Gruppe gemeint, ist die Verundung von Gruppe und Empfang ungleich 0
+                    sap::GET_CFG => {
+                        // Send configuration to master (SSAP 62 -> DSAP 59)
+                        // see Felser 8/2009 chapter 4.4.3.1
 
-          // Kurzquittung
-          self.transmit_message_sc();
-          // m_printfunc("Quittung");
-          if (DpSlaveState::Wprm == self.slave_state)
-          {
-            self.slave_state = DpSlaveState::Wcfg;
-          }
-        }
+                        if (function_code == (fc_request::REQUEST + fc_request::SRD_HIGH))
+                            || (function_code == (fc_request::REQUEST + fc_request::SRD_LOW))
+                        {
+                            // Erste Diagnose Abfrage (Aufruf Telegramm)
+                            let sap_data = [ssap_data, dsap_data];
+                            let mut buf: [u8; MODULE_CONFIG_SIZE] = [0; MODULE_CONFIG_SIZE];
+                            buf.copy_from_slice(&self.module_config[..]);
+                            self.transmit_message_sd2(
+                                fc_response::DATA_LOW,
+                                SAP_OFFSET,
+                                &sap_data[..],
+                                &buf,
+                            );
+                        }
+                    }
 
-      }
-
-      SAP::ChkCfg => { // Check Config Request (SSAP 62 -> DSAP 62)
+                    sap::CHK_CFG => {
+                        // Check Config Request (SSAP 62 -> DSAP 62)
                         // Siehe Felser 8/2009 Kap. 4.4.1
 
-        // Nach dem Erhalt der Konfiguration wechselt der DP-Slave vom Zustand
-        // "Wait Configuration" (WCFG) in den Zustand "Data Exchange" (DXCHG)
+                        // Nach dem Erhalt der Konfiguration wechselt der DP-Slave vom Zustand
+                        // "Wait Configuration" (WCFG) in den Zustand "Data Exchange" (DXCHG)
 
-        // IO Konfiguration:
-        // Kompaktes Format fuer max. 16/32 Byte IO
-        // Spezielles Format fuer max. 64/132 Byte IO
+                        // IO Konfiguration:
+                        // Kompaktes Format fuer max. 16/32 Byte IO
+                        // Spezielles Format fuer max. 64/132 Byte IO
 
-        Module_cnt = 0;
-        VENDOR_DATA_SIZE = 0;
+                        // Je nach PDU Datengroesse mehrere Bytes auswerten
+                        // LE/LEr - (DA+SA+FC+DSAP+SSAP) = Anzahl Config Bytes
+                        let config_len: usize = usize::from(self.rx_buffer[1]) - 5;
+                        let mut config_is_valid: bool = true;
+                        if self.module_config.len() == config_len {
+                            for i in 0..config_len {
+                                let config_data: u8 = self.rx_buffer[9 + i];
+                                if self.module_config[i] != config_data {
+                                    config_is_valid = false;
+                                }
+                            }
 
-        // Je nach PDU Datengroesse mehrere Bytes auswerten
-        // LE/LEr - (DA+SA+FC+DSAP+SSAP) = Anzahl Config Bytes
-        for (cnt = 0; cnt < self.rx_buffer[1] - 5; cnt++)
-        {
-           match (self.rx_buffer[9 + cnt] & sap_check_config_request::CFG_DIRECTION) {
-            sap_check_config_request::CFG_INPUT => {
+                            if !config_is_valid {
+                                self.diagnose_status_1 |= sap_diagnose_byte1::CFG_FAULT;
+                            } else {
+                                self.diagnose_status_1 &= !(sap_diagnose_byte1::STATION_NOT_READY
+                                    + sap_diagnose_byte1::CFG_FAULT);
+                            }
+                        } else {
+                            self.diagnose_status_1 |= sap_diagnose_byte1::CFG_FAULT;
+                        }
 
-            // INPUT_DATA_SIZE = (pb_uart_buffer[9+cnt] & CFG_BYTE_CNT_) + 1;
-            // if (pb_uart_buffer[9+cnt] & CFG_WIDTH_ & CFG_WORD)
-            //   INPUT_DATA_SIZE = INPUT_DATA_SIZE*2;
+                        // Kurzquittung
+                        self.transmit_message_sc();
 
-            m_moduleData[Module_cnt][0] = (self.rx_buffer[9 + cnt] & sap_check_config_request::CFG_BYTE_CNT) + 1;
-            if (self.rx_buffer[9 + cnt] & sap_check_config_request::CFG_WIDTH & sap_check_config_request::CFG_WORD)
-              m_moduleData[Module_cnt][0] = m_moduleData[Module_cnt][0] * 2;
-
-            Module_cnt++;
-
-            }
-
-            sap_check_config_request::CFG_OUTPUT => {
-
-            // OUTPUT_DATA_SIZE = (pb_uart_buffer[9+cnt] & CFG_BYTE_CNT_) + 1;
-            // if (pb_uart_buffer[9+cnt] & CFG_WIDTH_ & CFG_WORD)
-            //   OUTPUT_DATA_SIZE = OUTPUT_DATA_SIZE*2;
-
-            m_moduleData[Module_cnt][1] = (self.rx_buffer[9 + cnt] & sap_check_config_request::CFG_BYTE_CNT) + 1;
-            if (self.rx_buffer[9 + cnt] & sap_check_config_request::CFG_WIDTH & sap_check_config_request::CFG_WORD)
-              m_moduleData[Module_cnt][1] = m_moduleData[Module_cnt][1] * 2;
-
-            Module_cnt++;
-
-            }
-
-            sap_check_config_request::CFG_INPUT_OUTPUT => {
-
-            // INPUT_DATA_SIZE = (pb_uart_buffer[9+cnt] & CFG_BYTE_CNT_) + 1;
-            // OUTPUT_DATA_SIZE = (pb_uart_buffer[9+cnt] & CFG_BYTE_CNT_) + 1;
-            // if (pb_uart_buffer[9+cnt] & CFG_WIDTH_ & CFG_WORD)
-            //{
-            //   INPUT_DATA_SIZE = INPUT_DATA_SIZE*2;
-            //   OUTPUT_DATA_SIZE = OUTPUT_DATA_SIZE*2;
-            // }
-
-            m_moduleData[Module_cnt][0] = (self.rx_buffer[9 + cnt] & sap_check_config_request::CFG_BYTE_CNT) + 1;
-            m_moduleData[Module_cnt][1] = (self.rx_buffer[9 + cnt] & sap_check_config_request::CFG_BYTE_CNT) + 1;
-            if (self.rx_buffer[9 + cnt] & sap_check_config_request::CFG_WIDTH & sap_check_config_request::CFG_WORD)
-            {
-              m_moduleData[Module_cnt][0] = m_moduleData[Module_cnt][0] * 2;
-              m_moduleData[Module_cnt][1] = m_moduleData[Module_cnt][1] * 2;
-            }
-
-            Module_cnt++;
-
-          }
-
-          sap_check_config_request::CFG_SPECIAL => {
-
-            // Spezielles Format
-
-            // Herstellerspezifische Bytes vorhanden?
-            if (self.rx_buffer[9 + cnt] & sap_check_config_request::CFG_SP_VENDOR_CNT)
-            {
-              // Anzahl Herstellerdaten sichern
-              VENDOR_DATA_SIZE += self.rx_buffer[9 + cnt] & sap_check_config_request::CFG_SP_VENDOR_CNT;
-
-              // Vendor_Data[] = pb_uart_buffer[];
-
-              // Anzahl von Gesamtanzahl abziehen
-              self.rx_buffer[1] -= self.rx_buffer[9 + cnt] & sap_check_config_request::CFG_SP_VENDOR_CNT;
-            }
-
-            // I/O Daten
-            match (self.rx_buffer[9 + cnt] & sap_check_config_request::CFG_SP_DIRECTION)
-            {
-                sap_check_config_request::CFG_SP_VOID => { // Leeres Modul (1 Byte)
-
-              m_moduleData[Module_cnt][0] = 0;
-              m_moduleData[Module_cnt][1] = 0;
-
-              Module_cnt++;
-
-                  }
-
-                  sap_check_config_request::CFG_SP_INPUT => { // Eingang (2 Byte)
-
-              // INPUT_DATA_SIZE = (pb_uart_buffer[10+cnt] & CFG_SP_BYTE_CNT_) + 1;
-              // if (pb_uart_buffer[10+cnt] & CFG_WIDTH_ & CFG_WORD)
-              //   INPUT_DATA_SIZE = INPUT_DATA_SIZE*2;
-
-              m_moduleData[Module_cnt][0] = (self.rx_buffer[10 + cnt] & sap_check_config_request::CFG_SP_BYTE_CNT) + 1;
-              if (self.rx_buffer[10 + cnt] & sap_check_config_request::CFG_WIDTH & sap_check_config_request::CFG_WORD)
-                m_moduleData[Module_cnt][0] = m_moduleData[Module_cnt][0] * 2;
-
-              Module_cnt++;
-
-              cnt++; // Zweites Byte haben wir jetzt schon
-
-                   }
-
-                   sap_check_config_request::CFG_SP_OUTPUT => { // Ausgang (2 Byte)
-
-              // OUTPUT_DATA_SIZE = (pb_uart_buffer[10+cnt] & CFG_SP_BYTE_CNT_) + 1;
-              // if (pb_uart_buffer[10+cnt] & CFG_WIDTH_ & CFG_WORD)
-              //   OUTPUT_DATA_SIZE = OUTPUT_DATA_SIZE*2;
-
-              m_moduleData[Module_cnt][1] = (self.rx_buffer[10 + cnt] & sap_check_config_request::CFG_SP_BYTE_CNT) + 1;
-              if (self.rx_buffer[10 + cnt] & sap_check_config_request::CFG_WIDTH & sap_check_config_request::CFG_WORD)
-                m_moduleData[Module_cnt][1] = m_moduleData[Module_cnt][1] * 2;
-
-              Module_cnt+=1;
-
-              cnt+=1; // Zweites Byte haben wir jetzt schon
-
+                        if DpSlaveState::Wcfg == self.slave_state {
+                            self.slave_state = DpSlaveState::Dxchg;
+                        }
                     }
 
-                    sap_check_config_request::CFG_SP_INPUT_OUTPUT =>{ // Ein- und Ausgang (3 Byte)
-
-              // Erst Ausgang...
-              // OUTPUT_DATA_SIZE = (pb_uart_buffer[10+cnt] & CFG_SP_BYTE_CNT_) + 1;
-              // if (pb_uart_buffer[10+cnt] & CFG_WIDTH_ & CFG_WORD)
-              //  OUTPUT_DATA_SIZE = OUTPUT_DATA_SIZE*2;
-
-              // Dann Eingang
-              // INPUT_DATA_SIZE = (pb_uart_buffer[11+cnt] & CFG_SP_BYTE_CNT_) + 1;
-              // if (pb_uart_buffer[11+cnt] & CFG_WIDTH_ & CFG_WORD)
-              //  INPUT_DATA_SIZE = INPUT_DATA_SIZE*2;
-
-              // Erst Ausgang...
-              m_moduleData[Module_cnt][0] = (self.rx_buffer[10 + cnt] & sap_check_config_request::CFG_SP_BYTE_CNT) + 1;
-              if (self.rx_buffer[10 + cnt] & sap_check_config_request::CFG_WIDTH & sap_check_config_request::CFG_WORD)
-                m_moduleData[Module_cnt][0] = m_moduleData[Module_cnt][0] * 2;
-
-              // Dann Eingang
-              m_moduleData[Module_cnt][1] = (self.rx_buffer[11 + cnt] & sap_check_config_request::CFG_SP_BYTE_CNT) + 1;
-              if (self.rx_buffer[11 + cnt] & sap_check_config_request::CFG_WIDTH & sap_check_config_request::CFG_WORD)
-                m_moduleData[Module_cnt][1] = m_moduleData[Module_cnt][1] * 2;
-
-              Module_cnt++;
-
-              cnt += 2; // Zweites und drittes Bytes haben wir jetzt schon
-
+                    _ => (),
+                } // Switch DSAP_data Ende
+            }
+            // Ziel: Slave Adresse, but no SAP
+            else if destination_add == self.config.addr {
+                // Status Abfrage
+                if function_code == (fc_request::REQUEST + fc_request::FDL_STATUS) {
+                    self.transmit_message_sd1(fc_response::FDL_STATUS_OK, 0);
+                }
+                // Master sendet Ausgangsdaten und verlangt Eingangsdaten (Send and Request Data)
+                /*
+                else if (function_code == (REQUEST_ + FCV_ + SRD_HIGH) ||
+                         function_code == (REQUEST_ + FCV_ + FCB_ + SRD_HIGH))
+                {
+                 */
+                else if function_code == (fc_request::REQUEST + fc_request::SRD_HIGH)
+                    || function_code == (fc_request::REQUEST + fc_request::SRD_LOW)
+                {
+                    if self.sync_act && self.sync
+                    // write data in output_register when sync
+                    {
+                        if self.output_data.len() > 0 {
+                            for i in 0..self.rx_buffer.len() {
+                                self.output_data[i] = self.rx_buffer[7 + i];
+                            }
+                        }
+                    } else
+                    // normaler Betrieb
+                    {
+                        if self.output_data.len() > 0 {
+                            for i in 0..self.rx_buffer.len() {
+                                self.output_data[i] = self.rx_buffer[7 + i];
+                            }
+                        }
+                        self.interface
+                            .data_processing(&mut [0; 0], &self.output_data[..]);
                     }
 
-            } // Switch Ende
+                    if self.freeze_act && self.freeze
+                    // write input_register in telegram when freeze
+                    {
+                        // if self.input_data.len() > 0
+                        // {
+                        //   self.tx_buffer[7..(7+self.input_data.len())] = self.input_data;
+                        // }
+                        //TODO => freeze does not work
+                    } else
+                    // normaler Betrieb
+                    {
+                        self.interface
+                            .data_processing(&mut self.input_data[..], &[0; 0]);
+                        // if self.input_data.len() > 0
+                        // {
+                        //   self.tx_buffer[7..(7+self.input_data.len())] = self.input_data;
+                        // }
+                    }
 
-        }
-
-        _=> (),
-
-        }   // For Ende
-      }
-
-        if VENDOR_DATA_SIZE != 0
+                    if self.input_data.len() > 0 {
+                        if (self.diagnose_status_1 & sap_diagnose_byte1::EXT_DIAG) != 0 {
+                            self.transmit_message_sd2(fc_response::DATA_HIGH, 0, &[0; 0], &[0; 0]);
+                        // Diagnose Abfrage anfordern
+                        } else {
+                            let mut buf: [u8; INPUT_DATA_SIZE] = [0; INPUT_DATA_SIZE];
+                            buf.copy_from_slice(&self.input_data[..]);
+                            self.transmit_message_sd2(fc_response::DATA_LOW, 0, &buf, &[0; 0]);
+                            // Daten senden
+                        }
+                    } else {
+                        // TODO
+                        //  if (diagnose_status_1 & EXT_DIAG_ || (get_Address() & 0x80))
+                        //    sendCmd(cmd_type::SD1, DATA_HIGH, 0, &self.tx_buffer[7], 0); // Diagnose Abfrage anfordern
+                        //  else
+                        //    sendCmd(cmd_type::SC, 0, 0, &self.tx_buffer[7], 0); // Kurzquittung
+                    }
+                }
+            }
+        } else
+        // data not valid
         {
-          // Auswerten
+            self.rx_len = 0;
         }
-
-        // Bei Fehler -> CFG_FAULT_ in Diagnose senden
-        if (self.vendor_data.len() > 0) && (Module_cnt > m_moduleData.len() || VENDOR_DATA_SIZE != self.vendor_data.len())
-        {
-          diagnose_status_1 |= sap_diagnose_byte1::CFG_FAULT;
-        }
-        else if (self.vendor_data.len() == 0) && (Module_cnt > self.config.module_count)
-        {
-          diagnose_status_1 |= sap_diagnose_byte1::CFG_FAULT;
-        }
-        else
-        {
-          diagnose_status_1 &= !(sap_diagnose_byte1::STATION_NOT_READY + sap_diagnose_byte1::CFG_FAULT);
-        }
-
-        // Kurzquittung
-        self.transmit_message_sc();
-
-        if (DpSlaveState::Wcfg == self.slave_state)
-        {
-          self.slave_state = DpSlaveState::Dxchg;
-        }
-      }
-
-    _ => (),
-
-      } // Switch DSAP_data Ende
     }
-    // Ziel: Slave Adresse, but no SAP
-    else if (destination_add == self.config.addr)
-    {
-
-      // Status Abfrage
-      if function_code == (fc_request::REQUEST + fc_request::FDL_STATUS)
-      {
-        self.transmit_message_sd1(fc_response::FDL_STATUS_OK, 0);
-      }
-      // Master sendet Ausgangsdaten und verlangt Eingangsdaten (Send and Request Data)
-      /*
-      else if (function_code == (REQUEST_ + FCV_ + SRD_HIGH) ||
-               function_code == (REQUEST_ + FCV_ + FCB_ + SRD_HIGH))
-      {
-       */
-      else if function_code == (fc_request::REQUEST + fc_request::SRD_HIGH) ||
-               function_code == (fc_request::REQUEST + fc_request::SRD_LOW)
-      {
-        if self.sync_act && self.sync // write data in output_register when sync
-        {
-          if self.output_data.len() > 0
-          {
-            self.output_data = self.rx_buffer[7..(7+self.output_data.len())]
-          }
-        }
-        else // normaler Betrieb
-        {
-          if self.output_data.len() > 0
-          {
-            self.output_data = self.rx_buffer[7..(7+self.output_data.len())]
-          }
-          self.data_handling([0;0], self.output_data);
-        }
-
-        if self.freeze_act && self.freeze // write input_register in telegram when freeze
-        {
-          // if self.input_data.len() > 0
-          // {
-          //   self.tx_buffer[7..(7+self.input_data.len())] = self.input_data;
-          // }
-          //TODO => freeze does not work
-        }
-        else // normaler Betrieb
-        {
-          self.data_handling(self.input_data, [0;0]);
-          // if self.input_data.len() > 0
-          // {
-          //   self.tx_buffer[7..(7+self.input_data.len())] = self.input_data;
-          // }
-        }
-
-        if self.input_data.len() > 0
-        {
-          if (self.diagnose_status_1 & sap_diagnose_byte1::EXT_DIAG) != 0
-          {
-            self.transmit_message_sd2(fc_response::DATA_HIGH, 0, [0;0]); // Diagnose Abfrage anfordern
-          }
-          else
-          {
-            self.transmit_message_sd2(fc_response::DATA_LOW, 0, &self.input_data); // Daten senden
-          }
-        }
-        else
-        {
-          // TODO
-          //  if (diagnose_status_1 & EXT_DIAG_ || (get_Address() & 0x80))
-          //    sendCmd(cmd_type::SD1, DATA_HIGH, 0, &self.tx_buffer[7], 0); // Diagnose Abfrage anfordern
-          //  else
-          //    sendCmd(cmd_type::SC, 0, 0, &self.tx_buffer[7], 0); // Kurzquittung
-        }
-      }
-    }
-
-  }
-  else // data not valid
-  {
-    self.rx_len = 0;
-  }
-}
 }

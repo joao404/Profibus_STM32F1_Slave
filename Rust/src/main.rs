@@ -37,11 +37,11 @@ mod app {
     use nb::block;
     use stm32f1xx_hal::{
         gpio::{gpiob, gpioc, Output, PushPull}, //gpioa , Floating, Input, Alternate},
-        pac::{USART1, USART3, TIM2},
+        pac::{TIM2, USART1, USART3},
         prelude::*,
+        // rtc::Rtc,
         serial::{Config, Rx as serialRx, Serial, Tx as serialTx /*TxDma1, RxDma1,*/},
         timer::{CounterUs, Event},
-        rtc::Rtc,
     };
     //use rtic::{app};
 
@@ -55,7 +55,7 @@ mod app {
     const OUTPUT_DATA_SIZE: usize = 5;
     const USER_PARA_SIZE: usize = 0;
     const EXTERN_DIAG_PARA_SIZE: usize = 0;
-    const VENDOR_DATA_SIZE: usize = 0;
+    const VENDOR_DATA_SIZE: usize = 5;
 
     #[monotonic(binds = SysTick, default = true)]
     type MyMono = DwtSystick<PERIOD>; // 56 MHz
@@ -77,11 +77,6 @@ mod app {
             EXTERN_DIAG_PARA_SIZE,
             VENDOR_DATA_SIZE,
         >,
-    }
-
-    fn data_handling(input: &[u8], output: &[u8])
-    {
-
     }
 
     #[init]
@@ -167,14 +162,13 @@ mod app {
             .counter_frequency(1_000_000_u32)
             .ident_high(0x00)
             .ident_low(0x2B)
-            .addr(0x0B)
-            .module_count(5);
+            .addr(0x0B);
 
         let tx_en = gpiob.pb1.into_push_pull_output(&mut gpiob.crl);
         let rx_en = gpiob.pb0.into_push_pull_output(&mut gpiob.crl);
         let interface = PbDpHwInterface::new(serial3_tx, serial3_rx, tx_en, rx_en, timer);
 
-        let profibus_slave = PbDpSlave::new(profibus_config, interface, data_handling);
+        let profibus_slave = PbDpSlave::new(interface, profibus_config, [0x22, 0x20, 0x20, 0x10, 0x10]);
 
         block!(serial1_tx.write(b't')).ok();
 
@@ -234,7 +228,6 @@ mod app {
         });
     }
 
-
     pub struct PbDpHwInterface {
         rx: serialRx<USART3>,
         tx: serialTx<USART3>,
@@ -264,11 +257,17 @@ mod app {
     impl HwInterface for PbDpHwInterface {
         fn config_timer(&mut self) {}
 
-        fn run_timer(&mut self, _timeout_in_us: u32) { self.timer_handler.start(_timeout_in_us.micros()).unwrap();}
+        fn run_timer(&mut self, _timeout_in_us: u32) {
+            self.timer_handler.start(_timeout_in_us.micros()).unwrap();
+        }
 
-        fn stop_timer(&mut self) {self.timer_handler.cancel().unwrap_or_default()}
+        fn stop_timer(&mut self) {
+            self.timer_handler.cancel().unwrap_or_default()
+        }
 
-        fn clear_overflow_flag(&mut self) {self.timer_handler.clear_interrupt(Event::Update);}
+        fn clear_overflow_flag(&mut self) {
+            self.timer_handler.clear_interrupt(Event::Update);
+        }
 
         fn config_uart(&mut self) {}
 
@@ -290,7 +289,9 @@ mod app {
 
         fn set_tx_flag(&mut self) {}
 
-        fn clear_tx_flag(&mut self) {self.tx.clear_transmission_complete_interrupt()}
+        fn clear_tx_flag(&mut self) {
+            self.tx.clear_transmission_complete_interrupt()
+        }
 
         fn clear_rx_flag(&mut self) {}
 
@@ -328,9 +329,7 @@ mod app {
 
         fn get_uart_value(&mut self) -> Option<u8> {
             match self.rx.read() {
-                Ok(data) => {
-                    Some(data)
-                }
+                Ok(data) => Some(data),
                 Err(_err) => None,
             }
         }
@@ -346,7 +345,14 @@ mod app {
         fn error_led_off(&mut self) {}
 
         fn millis(&mut self) -> u32 {
-            0//SysTick()
+            0 //SysTick()
+            //TODO
+        }
+        fn data_processing(&self, _input: &mut[u8], _output: &[u8]) {
+            if (_output.len() > 0) && (_input.len() > 0)
+            {
+                _input[0] = _output[0];
+            }
         }
     }
 }
