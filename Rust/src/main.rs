@@ -30,6 +30,7 @@ use panic_halt as _;
 //use cortex_m::singleton;
 //use cortex_m_semihosting::{hprintln};
 mod profibus;
+mod rtc_millis;
 
 #[rtic::app(device = stm32f1xx_hal::pac, dispatchers = [I2C1_EV], peripherals = true,)]
 mod app {
@@ -39,10 +40,10 @@ mod app {
         gpio::{gpiob, gpioc, Output, PushPull}, //gpioa , Floating, Input, Alternate},
         pac::{TIM2, USART1, USART3},
         prelude::*,
-        // rtc::Rtc,
         serial::{Config, Rx as serialRx, Serial, Tx as serialTx /*TxDma1, RxDma1,*/},
         timer::{CounterUs, Event},
     };
+    use crate::rtc_millis::Rtc;
     //use rtic::{app};
 
     // use heapless::Vec;
@@ -102,10 +103,9 @@ mod app {
         let mono = DwtSystick::new(&mut cp.DCB, cp.DWT, cp.SYST, PERIOD);
         //cp.DWT.enable_cycle_counter();
 
-        // let mut pwr = cx.device.PWR;
-        // let mut backup_domain = rcc.bkp.constrain(p.BKP, &mut pwr);
-        // let rtc = Rtc::new(cx.device.RTC, backup_domain);
-        // rtc.current_time()
+        let mut pwr = cx.device.PWR;
+        let mut backup_domain = rcc.bkp.constrain(cx.device.BKP, &mut pwr);
+        let rtc = Rtc::new(cx.device.RTC, &mut backup_domain);
 
         let mut gpioa = cx.device.GPIOA.split();
         let mut gpiob = cx.device.GPIOB.split();
@@ -166,7 +166,7 @@ mod app {
 
         let tx_en = gpiob.pb1.into_push_pull_output(&mut gpiob.crl);
         let rx_en = gpiob.pb0.into_push_pull_output(&mut gpiob.crl);
-        let interface = PbDpHwInterface::new(serial3_tx, serial3_rx, tx_en, rx_en, timer);
+        let interface = PbDpHwInterface::new(serial3_tx, serial3_rx, tx_en, rx_en, timer, rtc);
 
         let profibus_slave = PbDpSlave::new(interface, profibus_config, [0x22, 0x20, 0x20, 0x10, 0x10]);
 
@@ -234,6 +234,7 @@ mod app {
         rx_en: gpiob::PB0<Output<PushPull>>,
         tx_en: gpiob::PB1<Output<PushPull>>,
         timer_handler: CounterUs<TIM2>,
+        rtc: Rtc,
     }
 
     impl PbDpHwInterface {
@@ -243,6 +244,7 @@ mod app {
             tx_en: gpiob::PB1<Output<PushPull>>,
             rx_en: gpiob::PB0<Output<PushPull>>,
             timer_handler: CounterUs<TIM2>,
+            rtc : Rtc,
         ) -> Self {
             PbDpHwInterface {
                 rx,
@@ -250,6 +252,7 @@ mod app {
                 tx_en,
                 rx_en,
                 timer_handler,
+                rtc,
             }
         }
     }
@@ -345,8 +348,7 @@ mod app {
         fn error_led_off(&mut self) {}
 
         fn millis(&mut self) -> u32 {
-            0 //SysTick()
-            //TODO
+            self.rtc.current_time()
         }
         fn data_processing(&self, _input: &mut[u8], _output: &[u8]) {
             if (_output.len() > 0) && (_input.len() > 0)

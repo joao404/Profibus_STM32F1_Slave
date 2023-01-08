@@ -214,10 +214,6 @@ where
         }
     }
 
-    pub fn get_interface(&self) -> &dyn HwInterface {
-        &self.interface
-    }
-
     pub fn serial_interrupt_handler(&mut self) {
         if self.interface.rx_data_received() {
             self.rx_interrupt_handler();
