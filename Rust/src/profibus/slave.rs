@@ -173,7 +173,7 @@ where
         interface.run_timer(timeout_max_syn_time_in_us);
         interface.activate_rx_interrupt();
         // activateTxInterrupt();
-        interface.tx_rs485_enable();
+        interface.rx_rs485_enable();
 
         let current_time = interface.millis();
 
@@ -226,6 +226,7 @@ where
         loop {
             match self.interface.get_uart_value() {
                 Some(data) => {
+                    self.interface.error_led_on();
                     self.handle_rx_byte(data);
                 }
                 None => break,
@@ -235,7 +236,6 @@ where
 
     pub fn handle_rx_byte(&mut self, data: u8) {
         self.rx_buffer[self.rx_len] = data;
-
         // if we waited for TSYN, data can be saved
         if StreamState::WaitData == self.stream_state {
             self.stream_state = StreamState::GetData;
@@ -271,6 +271,8 @@ where
     pub fn timer_interrupt_handler(&mut self) {
         // Timer A Stop
         self.interface.stop_timer();
+
+        // self.interface.serial_write(b'c');
 
         match self.stream_state {
             StreamState::WaitSyn => {
@@ -452,6 +454,7 @@ where
             }
 
             cmd_type::SD2 => {
+                // self.interface.serial_write(b'0' + self.rx_len.to_le_bytes()[0]);
                 if self.rx_len == usize::from(self.rx_buffer[1] + 6) {
                     pdu_len = self.rx_buffer[1]; // DA+SA+FC+Nutzdaten
                     destination_add = self.rx_buffer[4];
@@ -466,6 +469,7 @@ where
                             // FCV und FCB loeschen, da vorher überprüft
                             function_code &= 0xCF;
                             process_data = true;
+                            // self.interface.serial_write(b'2');
                         }
                     }
                 }
@@ -576,9 +580,9 @@ where
 
                         // Wenn "Clear Data" high, dann SPS CPU auf "Stop"
                         if (self.rx_buffer[9] & sap_global_control::CLEAR_DATA) != 0 {
-                            self.interface.error_led_on(); // Status "SPS nicht bereit"
+                            // self.interface.error_led_on(); // Status "SPS nicht bereit"
                         } else {
-                            self.interface.error_led_off(); // Status "SPS OK"
+                            // self.interface.error_led_off(); // Status "SPS OK"
                         }
 
                         // Gruppe berechnen

@@ -60,4 +60,6 @@ pub trait HwInterface {
     }
 
     fn data_processing(&self, _input: &mut[u8], _output: &[u8]) {}
+
+    fn serial_write(&mut self, _data:u8){}
 }

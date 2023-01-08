@@ -37,11 +37,12 @@ mod app {
     use crate::profibus::{Config as PbDpConfig, HwInterface, PbDpSlave};
     use nb::block;
     use stm32f1xx_hal::{
-        gpio::{gpiob, gpioc, Output, PushPull}, //gpioa , Floating, Input, Alternate},
+        gpio::{gpioa, gpiob, gpioc, Output, PushPull}, //gpioa , Floating, Input, Alternate},
         pac::{TIM2, USART1, USART3},
         prelude::*,
         serial::{Config, Rx as serialRx, Serial, Tx as serialTx /*TxDma1, RxDma1,*/},
         timer::{CounterUs, Event},
+        dma::{TxDma, dma1::C4},
     };
     use crate::rtc_millis::Rtc;
     //use rtic::{app};
@@ -63,8 +64,8 @@ mod app {
 
     #[local]
     struct Local {
-        serial1_rx: serialRx<USART1>,
-        serial1_tx: serialTx<USART1>,
+        // serial1_rx: serialRx<USART1>,
+        // serial1_tx: serialTx<USART1>,
         led: gpioc::PC13<Output<PushPull>>,
     }
     #[shared]
@@ -123,9 +124,14 @@ mod app {
             cx.device.USART1,
             (serial1_tx_pin, serial1_rx_pin),
             &mut afio.mapr,
-            Config::default().baudrate(115200.bps()),
+            Config::default().baudrate(500_000.bps()),
             &clocks,
         );
+
+        // let dma1 = cx.device.DMA1.split();
+        // let serial1_tx = serial1.tx.with_dma(dma1.4);
+
+        let (mut serial1_tx, serial1_rx) = serial1.split();
 
         // USART3
         let serial3_tx_pin = gpiob.pb10.into_alternate_push_pull(&mut gpiob.crh);
@@ -135,24 +141,23 @@ mod app {
             cx.device.USART3,
             (serial3_tx_pin, serial3_rx_pin),
             &mut afio.mapr,
-            Config::default().baudrate(115200.bps()),
+            Config::default().baudrate(500_000.bps()),
             &clocks,
         );
 
-        block!(serial1.write(b'S')).ok();
-
-        let _dma1 = cx.device.DMA1.split();
+        block!(serial1_tx.write(b'S')).ok();
+        // let (_, serial1_tx) = serial1_tx.write(b"St").wait();
 
         // DMA channel selection depends on the peripheral:
         // - USART1: TX = 4, RX = 5
         // - USART2: TX = 6, RX = 7
-        // - USART3: TX = 3, RX = 2
+        // - USART3: TX = 2, RX = 3
 
-        let (mut serial1_tx, serial1_rx) = serial1.split();
-
+        // let (mut serial1_tx, serial1_rx) = serial1.split();
+        let dma1 = cx.device.DMA1.split();
+        let serial3_tx = serial3.tx.with_dma(dma1.2);
+        let serial3_rx = serial3.rx.with_dma(dma1.3);
         let (serial3_tx, serial3_rx) = serial3.split();
-        //let serial_dma_rx = serial_rx.with_dma(dma1.5);
-        //let serial_dma_tx = serial_tx.with_dma(dma1.4);
 
         let mut timer = cx.device.TIM2.counter_us(&clocks);
         timer.listen(Event::Update);
@@ -166,41 +171,50 @@ mod app {
 
         let tx_en = gpiob.pb1.into_push_pull_output(&mut gpiob.crl);
         let rx_en = gpiob.pb0.into_push_pull_output(&mut gpiob.crl);
-        let interface = PbDpHwInterface::new(serial3_tx, serial3_rx, tx_en, rx_en, timer, rtc);
+
+        // let (_, serial1_tx) = serial1_tx.write(b"art").wait();
+        block!(serial1_tx.write(b't')).ok();
+        block!(serial1_tx.write(b'a')).ok();
+        block!(serial1_tx.write(b'r')).ok();
+        block!(serial1_tx.write(b't')).ok();
+
+        let debug_pin = gpioa.pa7.into_push_pull_output(&mut gpioa.crl);
+
+        let interface = PbDpHwInterface::new(serial3_tx, serial3_rx, tx_en, rx_en, timer, rtc, serial1_tx, debug_pin);
 
         let profibus_slave = PbDpSlave::new(interface, profibus_config, [0x22, 0x20, 0x20, 0x10, 0x10]);
 
-        block!(serial1_tx.write(b't')).ok();
+        // block!(serial1_tx.write(b't')).ok();
 
         blinky::spawn().unwrap();
 
         (
             Shared { profibus_slave },
             Local {
-                serial1_rx,
-                serial1_tx,
+                // serial1_rx,
+                // serial1_tx,
                 led,
             },
             init::Monotonics(mono),
         )
     }
 
-    #[idle(local = [serial1_rx, serial1_tx])]
-    fn idle(cx: idle::Context) -> ! {
-        //let serial = cx.resources.serial;
-        let _serial1_rx = cx.local.serial1_rx;
-        let _serial1_tx = cx.local.serial1_tx;
+    // #[idle(local = [serial1_rx, serial1_tx])]
+    // fn idle(cx: idle::Context) -> ! {
+    //     //let serial = cx.resources.serial;
+    //     // let _serial1_rx = cx.local.serial1_rx;
+    //     // let _serial1_tx = cx.local.serial1_tx;
 
-        //let buf = singleton!(: [u8; 8] = [0; 8]).unwrap();
-        //let (_buf, _rx) = rx_channel.read(buf).wait();
+    //     //let buf = singleton!(: [u8; 8] = [0; 8]).unwrap();
+    //     //let (_buf, _rx) = rx_channel.read(buf).wait();
 
-        loop {
-            // Read the byte that was just sent. Blocks until the read is complete
+    //     loop {
+    //         // Read the byte that was just sent. Blocks until the read is complete
 
-            //tx_channel.write(b"The quick brown fox");
-            //rx_channel.ReadDma();
-        }
-    }
+    //         // _serial1_tx.write(b'a').ok();
+    //         //rx_channel.ReadDma();
+    //     }
+    // }
 
     #[task(priority = 1, local = [led])]
     fn blinky(cx: blinky::Context) {
@@ -235,6 +249,9 @@ mod app {
         tx_en: gpiob::PB1<Output<PushPull>>,
         timer_handler: CounterUs<TIM2>,
         rtc: Rtc,
+        serial_tx:serialTx<USART1>,
+        debug_pin: gpioa::PA7<Output<PushPull>>,
+        // serial_tx:TxDma<serialTx<USART1>, C4>
     }
 
     impl PbDpHwInterface {
@@ -245,6 +262,9 @@ mod app {
             rx_en: gpiob::PB0<Output<PushPull>>,
             timer_handler: CounterUs<TIM2>,
             rtc : Rtc,
+            serial_tx: serialTx<USART1>,
+            debug_pin: gpioa::PA7<Output<PushPull>>,
+            // serial_tx: TxDma<serialTx<USART1>, C4>,
         ) -> Self {
             PbDpHwInterface {
                 rx,
@@ -253,6 +273,8 @@ mod app {
                 rx_en,
                 timer_handler,
                 rtc,
+                serial_tx,
+                debug_pin,
             }
         }
     }
@@ -341,11 +363,11 @@ mod app {
             self.tx.write(_value).unwrap_or_default();
         }
 
-        fn config_error_led(&mut self) {}
+        fn config_error_led(&mut self) {self.debug_pin.set_low();}
 
-        fn error_led_on(&mut self) {}
+        fn error_led_on(&mut self) {self.debug_pin.toggle();}
 
-        fn error_led_off(&mut self) {}
+        fn error_led_off(&mut self) {self.debug_pin.set_low();}
 
         fn millis(&mut self) -> u32 {
             self.rtc.current_time()
@@ -355,6 +377,11 @@ mod app {
             {
                 _input[0] = _output[0];
             }
+        }
+
+        fn serial_write(&mut self, _data:u8)
+        {
+            self.serial_tx.write(_data).ok();
         }
     }
 }
