@@ -11,6 +11,7 @@ pub enum StreamState {
     WaitSyn,
     WaitData,
     GetData,
+    HandleData,
     WaitMinTsdr,
     SendData,
 }

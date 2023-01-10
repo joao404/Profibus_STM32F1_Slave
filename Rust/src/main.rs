@@ -35,16 +35,16 @@ mod rtc_millis;
 #[rtic::app(device = stm32f1xx_hal::pac, dispatchers = [I2C1_EV], peripherals = true,)]
 mod app {
     use crate::profibus::{Config as PbDpConfig, HwInterface, PbDpSlave};
+    use crate::rtc_millis::Rtc;
     use nb::block;
     use stm32f1xx_hal::{
+        dma::{dma1::C2, dma1::C3, RxDma, TxDma},
         gpio::{gpioa, gpiob, gpioc, Output, PushPull}, //gpioa , Floating, Input, Alternate},
         pac::{TIM2, USART1, USART3},
         prelude::*,
-        serial::{Config, Rx as serialRx, Serial, Tx as serialTx /*TxDma1, RxDma1,*/},
+        serial::{Config, Rx as serialRx, Serial, Tx as serialTx},
         timer::{CounterUs, Event},
-        dma::{TxDma, dma1::C4},
     };
-    use crate::rtc_millis::Rtc;
     //use rtic::{app};
 
     // use heapless::Vec;
@@ -83,7 +83,6 @@ mod app {
 
     #[init]
     fn init(cx: init::Context) -> (Shared, Local, init::Monotonics) {
-        // init::LateResources
         let mut flash = cx.device.FLASH.constrain();
         let rcc = cx.device.RCC.constrain();
 
@@ -102,8 +101,7 @@ mod app {
 
         // Initialize the monotonic
         let mono = DwtSystick::new(&mut cp.DCB, cp.DWT, cp.SYST, PERIOD);
-        //cp.DWT.enable_cycle_counter();
-
+        // rtc for millis
         let mut pwr = cx.device.PWR;
         let mut backup_domain = rcc.bkp.constrain(cx.device.BKP, &mut pwr);
         let rtc = Rtc::new(cx.device.RTC, &mut backup_domain);
@@ -114,8 +112,6 @@ mod app {
 
         //LED
         let led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
-        //led.set_low().ok();
-
         // USART1
         let serial1_tx_pin = gpioa.pa9.into_alternate_push_pull(&mut gpioa.crh);
         let serial1_rx_pin = gpioa.pa10;
@@ -127,10 +123,6 @@ mod app {
             Config::default().baudrate(500_000.bps()),
             &clocks,
         );
-
-        // let dma1 = cx.device.DMA1.split();
-        // let serial1_tx = serial1.tx.with_dma(dma1.4);
-
         let (mut serial1_tx, serial1_rx) = serial1.split();
 
         // USART3
@@ -141,7 +133,7 @@ mod app {
             cx.device.USART3,
             (serial3_tx_pin, serial3_rx_pin),
             &mut afio.mapr,
-            Config::default().baudrate(500_000.bps()),
+            Config::default().baudrate(500_000.bps()).wordlength_9bits().parity_even(),
             &clocks,
         );
 
@@ -154,10 +146,10 @@ mod app {
         // - USART3: TX = 2, RX = 3
 
         // let (mut serial1_tx, serial1_rx) = serial1.split();
-        let dma1 = cx.device.DMA1.split();
-        let serial3_tx = serial3.tx.with_dma(dma1.2);
-        let serial3_rx = serial3.rx.with_dma(dma1.3);
+        let _dma1 = cx.device.DMA1.split();
         let (serial3_tx, serial3_rx) = serial3.split();
+        // let serial3_tx_dma = serial3_tx.with_dma(dma1.2);
+        // let serial3_rx_dma = serial3_rx.with_dma(dma1.3);
 
         let mut timer = cx.device.TIM2.counter_us(&clocks);
         timer.listen(Event::Update);
@@ -180,9 +172,12 @@ mod app {
 
         let debug_pin = gpioa.pa7.into_push_pull_output(&mut gpioa.crl);
 
-        let interface = PbDpHwInterface::new(serial3_tx, serial3_rx, tx_en, rx_en, timer, rtc, serial1_tx, debug_pin);
+        let interface = PbDpHwInterface::new(
+            serial3_tx, serial3_rx, tx_en, rx_en, timer, rtc, serial1_tx, debug_pin,
+        );
 
-        let profibus_slave = PbDpSlave::new(interface, profibus_config, [0x22, 0x20, 0x20, 0x10, 0x10]);
+        let profibus_slave =
+            PbDpSlave::new(interface, profibus_config, [0x22, 0x20, 0x20, 0x10, 0x10]);
 
         // block!(serial1_tx.write(b't')).ok();
 
@@ -218,11 +213,18 @@ mod app {
 
     #[task(priority = 1, local = [led])]
     fn blinky(cx: blinky::Context) {
-        // Periodic
-        //blinky::spawn_after(Seconds(1_u32)).unwrap();
         cx.local.led.toggle();
         blinky::spawn_after(1.secs()).unwrap();
     }
+
+    // #[task(priority = 1, shared = [profibus_slave])]
+    // fn handle_data_receive(cx: handle_data_receive::Context) {
+    //     let mut profibus_slave = cx.shared.profibus_slave;
+
+    //     profibus_slave.lock(|profibus_slave| {
+    //         profibus_slave.handle_data_receive();
+    //     });
+    // }
 
     #[task(binds = USART3, priority = 2, shared = [profibus_slave])]
     fn usart3_rx(cx: usart3_rx::Context) {
@@ -234,7 +236,7 @@ mod app {
     }
 
     #[task(binds = TIM2, priority = 2, shared = [profibus_slave])]
-    fn tick(cx: tick::Context) {
+    fn timer2_max(cx: timer2_max::Context) {
         let mut profibus_slave = cx.shared.profibus_slave;
 
         profibus_slave.lock(|profibus_slave| {
@@ -243,13 +245,15 @@ mod app {
     }
 
     pub struct PbDpHwInterface {
-        rx: serialRx<USART3>,
         tx: serialTx<USART3>,
-        rx_en: gpiob::PB0<Output<PushPull>>,
+        rx: serialRx<USART3>,
+        // tx_dma: TxDma<serialTx<USART3>, C2>,
+        // rx_dma: RxDma<serialRx<USART3>, C3>,
         tx_en: gpiob::PB1<Output<PushPull>>,
+        rx_en: gpiob::PB0<Output<PushPull>>,
         timer_handler: CounterUs<TIM2>,
         rtc: Rtc,
-        serial_tx:serialTx<USART1>,
+        serial_tx: serialTx<USART1>,
         debug_pin: gpioa::PA7<Output<PushPull>>,
         // serial_tx:TxDma<serialTx<USART1>, C4>
     }
@@ -258,17 +262,21 @@ mod app {
         pub fn new(
             tx: serialTx<USART3>,
             rx: serialRx<USART3>,
+            // tx_dma: TxDma<serialTx<USART3>, C2>,
+            // rx_dma: RxDma<serialRx<USART3>, C3>,
             tx_en: gpiob::PB1<Output<PushPull>>,
             rx_en: gpiob::PB0<Output<PushPull>>,
             timer_handler: CounterUs<TIM2>,
-            rtc : Rtc,
+            rtc: Rtc,
             serial_tx: serialTx<USART1>,
             debug_pin: gpioa::PA7<Output<PushPull>>,
             // serial_tx: TxDma<serialTx<USART1>, C4>,
         ) -> Self {
             PbDpHwInterface {
-                rx,
                 tx,
+                rx,
+                // tx_dma,
+                // rx_dma,
                 tx_en,
                 rx_en,
                 timer_handler,
@@ -287,7 +295,7 @@ mod app {
         }
 
         fn stop_timer(&mut self) {
-            self.timer_handler.cancel().unwrap_or_default()
+            self.timer_handler.cancel().unwrap_or_default();
         }
 
         fn clear_overflow_flag(&mut self) {
@@ -321,7 +329,7 @@ mod app {
         fn clear_rx_flag(&mut self) {}
 
         fn wait_for_activ_transmission(&mut self) {
-            while !self.tx.is_tx_empty() {}
+            while !self.tx.is_tx_complete() {}
         }
 
         fn rx_data_received(&mut self) -> bool {
@@ -363,24 +371,32 @@ mod app {
             self.tx.write(_value).unwrap_or_default();
         }
 
-        fn config_error_led(&mut self) {self.debug_pin.set_low();}
+        fn schedule_receive_handling(&mut self) {
+            // handle_data_receive::spawn().ok();
+        }
 
-        fn error_led_on(&mut self) {self.debug_pin.toggle();}
+        fn config_error_led(&mut self) {
+            self.debug_pin.set_high();
+        }
 
-        fn error_led_off(&mut self) {self.debug_pin.set_low();}
+        fn error_led_on(&mut self) {
+            self.debug_pin.set_low();
+        }
+
+        fn error_led_off(&mut self) {
+            self.debug_pin.set_high();
+        }
 
         fn millis(&mut self) -> u32 {
             self.rtc.current_time()
         }
-        fn data_processing(&self, _input: &mut[u8], _output: &[u8]) {
-            if (_output.len() > 0) && (_input.len() > 0)
-            {
-                _input[0] = _output[0];
+        fn data_processing(&self, _input: &mut [u8], _output: &[u8]) {
+            if (_output.len() > 0) && (_input.len() > 0) {
+                _input[0] = 22;
             }
         }
 
-        fn serial_write(&mut self, _data:u8)
-        {
+        fn serial_write(&mut self, _data: u8) {
             self.serial_tx.write(_data).ok();
         }
     }

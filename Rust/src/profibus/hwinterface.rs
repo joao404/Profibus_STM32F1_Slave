@@ -49,6 +49,12 @@ pub trait HwInterface {
 
     fn set_uart_value(&mut self, _value: u8) {}
 
+    fn send_uart_data(&mut self, _value: &[u8]) {}
+
+    fn get_uart_data(&mut self, _value: &mut [u8]) {}
+
+    fn schedule_receive_handling(&mut self) {}
+
     fn config_error_led(&mut self) {}
 
     fn error_led_on(&mut self) {}
@@ -59,7 +65,7 @@ pub trait HwInterface {
         0
     }
 
-    fn data_processing(&self, _input: &mut[u8], _output: &[u8]) {}
+    fn data_processing(&self, _input: &mut [u8], _output: &[u8]) {}
 
-    fn serial_write(&mut self, _data:u8){}
+    fn serial_write(&mut self, _data: u8) {}
 }

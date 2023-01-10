@@ -5,12 +5,27 @@ use super::types::{
     DpSlaveState, StreamState,
 };
 
+#[derive(PartialEq, Eq)]
+pub enum UartAccess {
+    SingleByte,
+    Dma,
+}
+
+#[derive(PartialEq, Eq)]
+pub enum ReceiveHandling {
+    Interrupt,
+    Thread,
+}
+
 pub struct Config {
     ident_high: u8,
     ident_low: u8,
     addr: u8,
     counter_frequency: u32,
     baudrate: u32,
+    rx_handling: UartAccess,
+    tx_handling: UartAccess,
+    receive_handling: ReceiveHandling,
 }
 
 impl Config {
@@ -34,6 +49,21 @@ impl Config {
         self.baudrate = baudrate;
         self
     }
+
+    pub fn rx_handling(mut self, rx_handling: UartAccess) -> Self {
+        self.rx_handling = rx_handling;
+        self
+    }
+
+    pub fn tx_handling(mut self, tx_handling: UartAccess) -> Self {
+        self.tx_handling = tx_handling;
+        self
+    }
+
+    pub fn receive_handling(mut self, receive_handling: ReceiveHandling) -> Self {
+        self.receive_handling = receive_handling;
+        self
+    }
 }
 
 impl Default for Config {
@@ -44,6 +74,9 @@ impl Default for Config {
             addr: 126,
             counter_frequency: 0,
             baudrate: 500_000_u32,
+            rx_handling: UartAccess::SingleByte,
+            tx_handling: UartAccess::SingleByte,
+            receive_handling: ReceiveHandling::Interrupt,
         }
     }
 }
@@ -171,9 +204,8 @@ where
         // Uart Init
         interface.config_uart();
         interface.run_timer(timeout_max_syn_time_in_us);
-        interface.activate_rx_interrupt();
-        // activateTxInterrupt();
         interface.rx_rs485_enable();
+        interface.activate_rx_interrupt();
 
         let current_time = interface.millis();
 
@@ -214,6 +246,14 @@ where
         }
     }
 
+    pub fn access_output(&mut self) -> &mut [u8; OUTPUT_DATA_SIZE] {
+        &mut self.output_data
+    }
+
+    pub fn access_input(&mut self) -> &mut [u8; INPUT_DATA_SIZE] {
+        &mut self.input_data
+    }
+
     pub fn serial_interrupt_handler(&mut self) {
         if self.interface.rx_data_received() {
             self.rx_interrupt_handler();
@@ -223,55 +263,57 @@ where
     }
 
     pub fn rx_interrupt_handler(&mut self) {
+        self.interface.stop_timer();
         loop {
             match self.interface.get_uart_value() {
                 Some(data) => {
-                    self.interface.error_led_on();
-                    self.handle_rx_byte(data);
+                    self.rx_buffer[self.rx_len] = data;
+                    // if we waited for TSYN, data can be saved
+                    if StreamState::WaitData == self.stream_state {
+                        self.stream_state = StreamState::GetData;
+                    }
+
+                    // Einlesen erlaubt?
+                    if StreamState::GetData == self.stream_state {
+                        if self.rx_len < self.rx_buffer.len() {
+                            self.rx_len += 1;
+                        }
+                    }
                 }
                 None => break,
             }
         }
-    }
-
-    pub fn handle_rx_byte(&mut self, data: u8) {
-        self.rx_buffer[self.rx_len] = data;
-        // if we waited for TSYN, data can be saved
-        if StreamState::WaitData == self.stream_state {
-            self.stream_state = StreamState::GetData;
-        }
-
-        // Einlesen erlaubt?
-        if StreamState::GetData == self.stream_state {
-            if self.rx_len < self.rx_buffer.len() {
-                self.rx_len += 1;
-            }
-        }
-        // Profibus Timer ruecksetzen
         self.interface.run_timer(self.timer_timeout_in_us);
     }
 
     pub fn tx_interrupt_handler(&mut self) {
-        if self.tx_pos < self.tx_len {
-            // TX Buffer fuellen
-            self.interface.set_uart_value(self.tx_buffer[self.tx_pos]);
-            self.tx_pos += 1;
-            // m_printfunc(m_txCnt);
-        } else {
+        self.interface.stop_timer();
+        if self.config.tx_handling == UartAccess::SingleByte {
+            if self.tx_pos < self.tx_len {
+                // TX Buffer fuellen
+                self.interface.set_uart_value(self.tx_buffer[self.tx_pos]);
+                self.tx_pos += 1;
+                // m_printfunc(m_txCnt);
+            } else {
+                self.interface.tx_rs485_disable();
+                // Alles gesendet, Interrupt wieder aus
+                self.interface.deactivate_tx_interrupt();
+                // clear Flag because we are not writing to buffer
+                self.interface.clear_tx_flag();
+            }
+        } else if self.config.tx_handling == UartAccess::Dma {
             self.interface.tx_rs485_disable();
             // Alles gesendet, Interrupt wieder aus
             self.interface.deactivate_tx_interrupt();
             // clear Flag because we are not writing to buffer
             self.interface.clear_tx_flag();
         }
-
         self.interface.run_timer(self.timer_timeout_in_us);
     }
 
     pub fn timer_interrupt_handler(&mut self) {
         // Timer A Stop
         self.interface.stop_timer();
-
         // self.interface.serial_write(b'c');
 
         match self.stream_state {
@@ -282,11 +324,18 @@ where
                 self.timer_timeout_in_us = self.timeout_max_sdr_time_in_us;
             }
             StreamState::GetData => {
-                self.stream_state = StreamState::WaitSyn;
-                self.timer_timeout_in_us = self.timeout_max_syn_time_in_us;
-                self.interface.deactivate_rx_interrupt();
-                self.handle_receive();
-                self.interface.activate_rx_interrupt();
+                if self.config.receive_handling == ReceiveHandling::Interrupt {
+                    self.stream_state = StreamState::WaitSyn;
+                    self.timer_timeout_in_us = self.timeout_max_syn_time_in_us;
+                    self.interface.deactivate_rx_interrupt();
+                    self.handle_data_receive();
+                    self.interface.activate_rx_interrupt();
+                } else if self.config.receive_handling == ReceiveHandling::Thread {
+                    self.stream_state = StreamState::HandleData;
+                    self.timer_timeout_in_us = self.timeout_max_syn_time_in_us;
+                    self.interface.deactivate_rx_interrupt();
+                    self.interface.schedule_receive_handling();
+                }
             }
             StreamState::WaitMinTsdr => {
                 self.stream_state = StreamState::SendData;
@@ -339,19 +388,25 @@ where
         pdu2: &[u8],
     ) {
         self.tx_buffer[0] = cmd_type::SD2;
-        self.tx_buffer[1] = pdu1.len().to_le_bytes()[0] + pdu2.len().to_le_bytes()[0];
-        self.tx_buffer[2] = pdu1.len().to_le_bytes()[0] + pdu2.len().to_le_bytes()[0];
+        self.tx_buffer[1] = 3 + pdu1.len().to_le_bytes()[0] + pdu2.len().to_le_bytes()[0];
+        self.tx_buffer[2] = 3 + pdu1.len().to_le_bytes()[0] + pdu2.len().to_le_bytes()[0];
         self.tx_buffer[3] = cmd_type::SD2;
         self.tx_buffer[4] = self.master_addr;
         self.tx_buffer[5] = self.config.addr + sap_offset;
         self.tx_buffer[6] = function_code;
-        for i in 0..pdu1.len() {
-            self.tx_buffer[7 + i] = pdu1[i];
+        if pdu1.len() > 0 {
+            for i in 0..pdu1.len() {
+                self.tx_buffer[7 + i] = pdu1[i];
+            }
         }
-        for i in 0..pdu2.len() {
-            self.tx_buffer[7 + i + pdu1.len()] = pdu2[i];
+        if pdu2.len() > 0 {
+            for i in 0..pdu2.len() {
+                self.tx_buffer[7 + i + pdu1.len()] = pdu2[i];
+            }
         }
-        let checksum = self.calc_checksum(&self.tx_buffer[4..(7 + pdu1.len() + pdu2.len())]);
+        let checksum = self.calc_checksum(&self.tx_buffer[4..7])
+            + self.calc_checksum(pdu1)
+            + self.calc_checksum(pdu2);
         self.tx_buffer[7 + pdu1.len() + pdu2.len()] = checksum;
         self.tx_buffer[8 + pdu1.len() + pdu2.len()] = cmd_type::ED;
         self.tx_len = 9 + pdu1.len() + pdu2.len();
@@ -366,10 +421,10 @@ where
         for i in 0..pdu.len() {
             self.tx_buffer[4 + i] = pdu[i];
         }
-        let checksum = self.calc_checksum(&self.tx_buffer[4..9]);
-        self.tx_buffer[9] = checksum;
-        self.tx_buffer[10] = cmd_type::ED;
-        self.tx_len = 11;
+        let checksum = self.calc_checksum(&self.tx_buffer[1..12]);
+        self.tx_buffer[12] = checksum;
+        self.tx_buffer[13] = cmd_type::ED;
+        self.tx_len = 14;
         self.transmit();
     }
     #[allow(dead_code)]
@@ -388,23 +443,31 @@ where
     }
 
     fn transmit(&mut self) {
+        self.interface.stop_timer();
         self.tx_pos = 0;
         if 0 != self.min_tsdr {
             self.stream_state = StreamState::WaitMinTsdr;
             self.timer_timeout_in_us = (self.config.counter_frequency * u32::from(self.min_tsdr))
                 / self.config.baudrate
                 / 2u32;
+            self.interface.run_timer(self.timer_timeout_in_us);
         } else {
-            self.timer_timeout_in_us = self.timeout_max_tx_time_in_us;
             self.stream_state = StreamState::SendData;
-            // activate Send Interrupt
             self.interface.wait_for_activ_transmission();
+            self.timer_timeout_in_us = self.timeout_max_tx_time_in_us;
+            // activate Send Interrupt
             self.interface.tx_rs485_enable();
-            self.interface.activate_tx_interrupt();
-            self.interface.set_uart_value(self.tx_buffer[self.tx_pos]);
-            self.tx_pos += 1;
+            self.interface.clear_tx_flag();
+            if self.config.tx_handling == UartAccess::SingleByte {
+                self.interface.set_uart_value(self.tx_buffer[self.tx_pos]);
+                self.interface.activate_tx_interrupt();
+                self.tx_pos += 1;
+                self.interface.run_timer(self.timer_timeout_in_us);
+            } else if self.config.tx_handling == UartAccess::Dma {
+                self.interface.send_uart_data(&self.tx_buffer);
+                self.interface.activate_tx_interrupt();
+            }
         }
-        self.interface.run_timer(self.timer_timeout_in_us);
     }
 
     fn calc_checksum(&self, data: &[u8]) -> u8 {
@@ -426,7 +489,7 @@ where
         }
     }
 
-    fn handle_receive(&mut self) {
+    pub fn handle_data_receive(&mut self) {
         let mut process_data = false;
 
         // Profibus Datentypen
@@ -438,56 +501,63 @@ where
         match self.rx_buffer[0] {
             cmd_type::SD1 => {
                 if 6 == self.rx_len {
-                    destination_add = self.rx_buffer[1];
-                    source_add = self.rx_buffer[2];
-                    function_code = self.rx_buffer[3];
-                    let fcs_data = self.rx_buffer[4]; // Frame Check Sequence
+                    if cmd_type::ED == self.rx_buffer[5] {
+                        destination_add = self.rx_buffer[1];
+                        source_add = self.rx_buffer[2];
+                        function_code = self.rx_buffer[3];
+                        let fcs_data = self.rx_buffer[4]; // Frame Check Sequence
 
-                    if self.check_destination_addr(destination_add) {
-                        if fcs_data == self.calc_checksum(&self.rx_buffer[1..4]) {
-                            // FCV und FCB loeschen, da vorher überprüft
-                            function_code &= 0xCF;
-                            process_data = true;
+                        if self.check_destination_addr(destination_add) {
+                            if fcs_data == self.calc_checksum(&self.rx_buffer[1..4]) {
+                                // FCV und FCB loeschen, da vorher überprüft
+                                function_code &= 0xCF;
+                                process_data = true;
+                            }
                         }
                     }
                 }
             }
 
             cmd_type::SD2 => {
-                // self.interface.serial_write(b'0' + self.rx_len.to_le_bytes()[0]);
-                if self.rx_len == usize::from(self.rx_buffer[1] + 6) {
-                    pdu_len = self.rx_buffer[1]; // DA+SA+FC+Nutzdaten
-                    destination_add = self.rx_buffer[4];
-                    source_add = self.rx_buffer[5];
-                    function_code = self.rx_buffer[6];
-                    let fcs_data = self.rx_buffer[usize::from(pdu_len + 4)]; // Frame Check Sequence
-
-                    if self.check_destination_addr(destination_add) {
-                        if fcs_data
-                            == self.calc_checksum(&self.rx_buffer[4..usize::from(7 + pdu_len)])
-                        {
-                            // FCV und FCB loeschen, da vorher überprüft
-                            function_code &= 0xCF;
-                            process_data = true;
-                            // self.interface.serial_write(b'2');
+                if self.rx_len > 4 {
+                    if self.rx_len == usize::from(self.rx_buffer[1] + 6) {
+                        if cmd_type::ED == self.rx_buffer[self.rx_len - 1] {
+                            pdu_len = self.rx_buffer[1]; // DA+SA+FC+Nutzdaten
+                            destination_add = self.rx_buffer[4];
+                            source_add = self.rx_buffer[5];
+                            function_code = self.rx_buffer[6];
+                            let fcs_data = self.rx_buffer[usize::from(pdu_len + 4)]; // Frame Check Sequence
+                            if self.check_destination_addr(destination_add) {
+                                if fcs_data
+                                    == self.calc_checksum(
+                                        &self.rx_buffer[4..usize::from(self.rx_len - 2)],
+                                    )
+                                {
+                                    // FCV und FCB loeschen, da vorher überprüft
+                                    function_code &= 0xCF;
+                                    process_data = true;
+                                }
+                            }
                         }
                     }
                 }
             }
 
             cmd_type::SD3 => {
-                if 11 == self.rx_len {
-                    pdu_len = 8; // DA+SA+FC+Nutzdaten
-                    destination_add = self.rx_buffer[1];
-                    source_add = self.rx_buffer[2];
-                    function_code = self.rx_buffer[3];
-                    let fcs_data = self.rx_buffer[9]; // Frame Check Sequence
+                if 14 == self.rx_len {
+                    if cmd_type::ED == self.rx_buffer[13] {
+                        pdu_len = 11; // DA+SA+FC+Nutzdaten
+                        destination_add = self.rx_buffer[1];
+                        source_add = self.rx_buffer[2];
+                        function_code = self.rx_buffer[3];
+                        let fcs_data = self.rx_buffer[12]; // Frame Check Sequence
 
-                    if self.check_destination_addr(destination_add) {
-                        if fcs_data == self.calc_checksum(&self.rx_buffer[4..9]) {
-                            // FCV und FCB loeschen, da vorher überprüft
-                            function_code &= 0xCF;
-                            process_data = true;
+                        if self.check_destination_addr(destination_add) {
+                            if fcs_data == self.calc_checksum(&self.rx_buffer[1..12]) {
+                                // FCV und FCB loeschen, da vorher überprüft
+                                function_code &= 0xCF;
+                                process_data = true;
+                            }
                         }
                     }
                 }
@@ -580,9 +650,9 @@ where
 
                         // Wenn "Clear Data" high, dann SPS CPU auf "Stop"
                         if (self.rx_buffer[9] & sap_global_control::CLEAR_DATA) != 0 {
-                            // self.interface.error_led_on(); // Status "SPS nicht bereit"
+                            self.interface.error_led_on(); // Status "SPS nicht bereit"
                         } else {
-                            // self.interface.error_led_off(); // Status "SPS OK"
+                            self.interface.error_led_off(); // Status "SPS OK"
                         }
 
                         // Gruppe berechnen
@@ -682,7 +752,7 @@ where
                                 self.transmit_message_sd2(
                                     fc_response::DATA_LOW,
                                     SAP_OFFSET,
-                                    &diagnose_data,
+                                    &diagnose_data[..],
                                     &[0; 0],
                                 );
                             }
@@ -813,13 +883,14 @@ where
                         let config_len: usize = usize::from(self.rx_buffer[1]) - 5;
                         let mut config_is_valid: bool = true;
                         if self.module_config.len() == config_len {
-                            for i in 0..config_len {
-                                let config_data: u8 = self.rx_buffer[9 + i];
-                                if self.module_config[i] != config_data {
-                                    config_is_valid = false;
+                            if self.module_config.len() > 0 {
+                                for i in 0..config_len {
+                                    let config_data: u8 = self.rx_buffer[9 + i];
+                                    if self.module_config[i] != config_data {
+                                        config_is_valid = false;
+                                    }
                                 }
                             }
-
                             if !config_is_valid {
                                 self.diagnose_status_1 |= sap_diagnose_byte1::CFG_FAULT;
                             } else {
@@ -844,6 +915,7 @@ where
             // Ziel: Slave Adresse, but no SAP
             else if destination_add == self.config.addr {
                 // Status Abfrage
+
                 if function_code == (fc_request::REQUEST + fc_request::FDL_STATUS) {
                     self.transmit_message_sd1(fc_response::FDL_STATUS_OK, 0);
                 }
@@ -859,8 +931,9 @@ where
                     if self.sync_act && self.sync
                     // write data in output_register when sync
                     {
+                        //TODO: size check
                         if self.output_data.len() > 0 {
-                            for i in 0..self.rx_buffer.len() {
+                            for i in 0..usize::from(pdu_len - 3) {
                                 self.output_data[i] = self.rx_buffer[7 + i];
                             }
                         }
@@ -868,7 +941,7 @@ where
                     // normaler Betrieb
                     {
                         if self.output_data.len() > 0 {
-                            for i in 0..self.rx_buffer.len() {
+                            for i in 0..usize::from(pdu_len - 3) {
                                 self.output_data[i] = self.rx_buffer[7 + i];
                             }
                         }
@@ -884,15 +957,17 @@ where
                         //   self.tx_buffer[7..(7+self.input_data.len())] = self.input_data;
                         // }
                         //TODO => freeze does not work
+                        self.input_data[0] = 1;
                     } else
                     // normaler Betrieb
                     {
-                        self.interface
-                            .data_processing(&mut self.input_data[..], &[0; 0]);
+                        // self.interface
+                        //     .data_processing(&mut self.input_data[..], &[0; 0]);
                         // if self.input_data.len() > 0
                         // {
                         //   self.tx_buffer[7..(7+self.input_data.len())] = self.input_data;
                         // }
+                        self.input_data[0] = 1;
                     }
 
                     if self.input_data.len() > 0 {
@@ -918,6 +993,14 @@ where
         // data not valid
         {
             self.rx_len = 0;
+            self.stream_state = StreamState::WaitSyn;
+            self.interface.run_timer(self.timer_timeout_in_us);
+        }
+        if self.config.receive_handling == ReceiveHandling::Thread {
+            self.interface.stop_timer();
+            self.stream_state = StreamState::WaitSyn;
+            self.interface.activate_rx_interrupt();
+            self.interface.run_timer(self.timer_timeout_in_us);
         }
     }
 }
