@@ -254,6 +254,15 @@ where
         &mut self.input_data
     }
 
+    fn reset_data_stream(&mut self) {
+        self.rx_len = 0;
+        self.stream_state = StreamState::WaitSyn;
+        self.timer_timeout_in_us = self.timeout_max_syn_time_in_us;
+        self.interface.run_timer(self.timer_timeout_in_us);
+        self.interface.rx_rs485_enable();
+        self.interface.deactivate_tx_interrupt();
+    }
+
     pub fn serial_interrupt_handler(&mut self) {
         if self.interface.rx_data_received() {
             self.rx_interrupt_handler();
@@ -291,6 +300,7 @@ where
         if self.config.tx_handling == UartAccess::SingleByte {
             if self.tx_pos < self.tx_len {
                 // TX Buffer fuellen
+                self.interface.clear_tx_flag();
                 self.interface.set_uart_value(self.tx_buffer[self.tx_pos]);
                 self.tx_pos += 1;
                 // m_printfunc(m_txCnt);
@@ -324,16 +334,13 @@ where
                 self.timer_timeout_in_us = self.timeout_max_sdr_time_in_us;
             }
             StreamState::GetData => {
+                self.timer_timeout_in_us = self.timeout_max_syn_time_in_us;
+                self.interface.deactivate_rx_interrupt();
                 if self.config.receive_handling == ReceiveHandling::Interrupt {
                     self.stream_state = StreamState::WaitSyn;
-                    self.timer_timeout_in_us = self.timeout_max_syn_time_in_us;
-                    self.interface.deactivate_rx_interrupt();
                     self.handle_data_receive();
-                    self.interface.activate_rx_interrupt();
                 } else if self.config.receive_handling == ReceiveHandling::Thread {
                     self.stream_state = StreamState::HandleData;
-                    self.timer_timeout_in_us = self.timeout_max_syn_time_in_us;
-                    self.interface.deactivate_rx_interrupt();
                     self.interface.schedule_receive_handling();
                 }
             }
@@ -342,9 +349,16 @@ where
                 self.timer_timeout_in_us = self.timeout_max_tx_time_in_us;
                 self.interface.wait_for_activ_transmission();
                 self.interface.tx_rs485_enable();
-                self.interface.activate_tx_interrupt();
-                self.interface.set_uart_value(self.tx_buffer[self.tx_pos]);
-                self.tx_pos += 1;
+                self.interface.clear_tx_flag();
+                if self.config.tx_handling == UartAccess::SingleByte {
+                    self.interface.set_uart_value(self.tx_buffer[self.tx_pos]);
+                    self.interface.activate_tx_interrupt();
+                    self.tx_pos += 1;
+                    self.interface.run_timer(self.timer_timeout_in_us);
+                } else if self.config.tx_handling == UartAccess::Dma {
+                    self.interface.send_uart_data(&self.tx_buffer);
+                    self.interface.activate_tx_interrupt();
+                }
             }
             StreamState::SendData => {
                 self.stream_state = StreamState::WaitSyn;
@@ -412,6 +426,7 @@ where
         self.tx_len = 9 + pdu1.len() + pdu2.len();
         self.transmit();
     }
+
     #[allow(dead_code)]
     fn transmit_message_sd3(&mut self, function_code: u8, sap_offset: u8, pdu: &[u8; 8]) {
         self.tx_buffer[0] = cmd_type::SD3;
@@ -427,6 +442,7 @@ where
         self.tx_len = 14;
         self.transmit();
     }
+
     #[allow(dead_code)]
     fn transmit_message_sd4(&mut self, sap_offset: u8) {
         self.tx_buffer[0] = cmd_type::SD4;
@@ -491,6 +507,7 @@ where
 
     pub fn handle_data_receive(&mut self) {
         let mut process_data = false;
+        let mut response = false;
 
         // Profibus Datentypen
         let mut destination_add: u8 = 0;
@@ -596,6 +613,7 @@ where
                 // FCB ist gleich geblieben
                 {
                     // Nachricht wiederholen
+                    response = true;
                     self.transmit();
                     // die Nachricht liegt noch im Speicher
                 } else
@@ -640,7 +658,7 @@ where
                             // IDENT_LOW_BYTE = m_pbUartRxBuffer[11];
                             // if (pb_uart_buffer[12] & 0x01) adress_aenderung_sperren = true;
                         }
-
+                        response = true;
                         self.transmit_message_sc();
                     }
 
@@ -748,6 +766,7 @@ where
                                     &diagnose_data[..],
                                     &buf,
                                 );
+                                response = true;
                             } else {
                                 self.transmit_message_sd2(
                                     fc_response::DATA_LOW,
@@ -755,6 +774,7 @@ where
                                     &diagnose_data[..],
                                     &[0; 0],
                                 );
+                                response = true;
                             }
                         }
 
@@ -825,6 +845,10 @@ where
                             self.config.ident_high = self.rx_buffer[13];
                             self.config.ident_low = self.rx_buffer[14];
 
+                            self.group = self.rx_buffer[15]; // wir speichern das gesamte Byte und sparen uns damit die Schleife. Ist unsere Gruppe gemeint, ist die Verundung von Gruppe und Empfang ungleich 0
+
+                            // TODO DPV1 etc.
+
                             // User Parameter einlesen
                             if self.user_para.len() > 0 {
                                 // User Parameter groesse = Laenge - DA, SA, FC, DSAP, SSAP, 7 Parameter Bytes
@@ -835,11 +859,9 @@ where
                                     }
                                 }
                             }
-
-                            self.group = self.rx_buffer[15]; // wir speichern das gesamte Byte und sparen uns damit die Schleife. Ist unsere Gruppe gemeint, ist die Verundung von Gruppe und Empfang ungleich 0
-
                             // Kurzquittung
                             self.transmit_message_sc();
+                            response = true;
                             // m_printfunc("Quittung");
                             if DpSlaveState::Wrpm == self.slave_state {
                                 self.slave_state = DpSlaveState::Wcfg;
@@ -864,6 +886,7 @@ where
                                 &sap_data[..],
                                 &buf,
                             );
+                            response = true;
                         }
                     }
 
@@ -903,7 +926,7 @@ where
 
                         // Kurzquittung
                         self.transmit_message_sc();
-
+                        response = true;
                         if DpSlaveState::Wcfg == self.slave_state {
                             self.slave_state = DpSlaveState::Dxchg;
                         }
@@ -918,6 +941,7 @@ where
 
                 if function_code == (fc_request::REQUEST + fc_request::FDL_STATUS) {
                     self.transmit_message_sd1(fc_response::FDL_STATUS_OK, 0);
+                    response = true;
                 }
                 // Master sendet Ausgangsdaten und verlangt Eingangsdaten (Send and Request Data)
                 /*
@@ -973,11 +997,13 @@ where
                     if self.input_data.len() > 0 {
                         if (self.diagnose_status_1 & sap_diagnose_byte1::EXT_DIAG) != 0 {
                             self.transmit_message_sd2(fc_response::DATA_HIGH, 0, &[0; 0], &[0; 0]);
-                        // Diagnose Abfrage anfordern
+                            response = true;
+                            // Diagnose Abfrage anfordern
                         } else {
                             let mut buf: [u8; INPUT_DATA_SIZE] = [0; INPUT_DATA_SIZE];
                             buf.copy_from_slice(&self.input_data[..]);
                             self.transmit_message_sd2(fc_response::DATA_LOW, 0, &buf, &[0; 0]);
+                            response = true;
                             // Daten senden
                         }
                     } else {
@@ -989,18 +1015,12 @@ where
                     }
                 }
             }
-        } else
-        // data not valid
-        {
-            self.rx_len = 0;
-            self.stream_state = StreamState::WaitSyn;
-            self.interface.run_timer(self.timer_timeout_in_us);
         }
-        if self.config.receive_handling == ReceiveHandling::Thread {
-            self.interface.stop_timer();
-            self.stream_state = StreamState::WaitSyn;
-            self.interface.activate_rx_interrupt();
-            self.interface.run_timer(self.timer_timeout_in_us);
+
+        // data could not be handled
+        if !response {
+            self.reset_data_stream();
         }
+        self.interface.activate_rx_interrupt();
     }
 }
