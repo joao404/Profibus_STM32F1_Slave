@@ -34,7 +34,7 @@ mod rtc_millis;
 
 #[rtic::app(device = stm32f1xx_hal::pac, dispatchers = [I2C1_EV], peripherals = true,)]
 mod app {
-    use crate::profibus::{Config as PbDpConfig, HwInterface, PbDpSlave};
+    use crate::profibus::{Config as PbDpConfig, ReceiveHandling, HwInterface, PbDpSlave};
     use crate::rtc_millis::Rtc;
     use nb::block;
     use stm32f1xx_hal::{
@@ -159,7 +159,8 @@ mod app {
             .counter_frequency(1_000_000_u32)
             .ident_high(0x00)
             .ident_low(0x2B)
-            .addr(0x0B);
+            .addr(0x0B)
+            .receive_handling(ReceiveHandling::Thread);
 
         let tx_en = gpiob.pb1.into_push_pull_output(&mut gpiob.crl);
         let rx_en = gpiob.pb0.into_push_pull_output(&mut gpiob.crl);
@@ -217,14 +218,14 @@ mod app {
         blinky::spawn_after(1.secs()).unwrap();
     }
 
-    // #[task(priority = 1, shared = [profibus_slave])]
-    // fn handle_data_receive(cx: handle_data_receive::Context) {
-    //     let mut profibus_slave = cx.shared.profibus_slave;
+    #[task(priority = 1, shared = [profibus_slave])]
+    fn handle_data_receive(cx: handle_data_receive::Context) {
+        let mut profibus_slave = cx.shared.profibus_slave;
 
-    //     profibus_slave.lock(|profibus_slave| {
-    //         profibus_slave.handle_data_receive();
-    //     });
-    // }
+        profibus_slave.lock(|profibus_slave| {
+            profibus_slave.handle_data_receive();
+        });
+    }
 
     #[task(binds = USART3, priority = 2, shared = [profibus_slave])]
     fn usart3_rx(cx: usart3_rx::Context) {
@@ -372,7 +373,7 @@ mod app {
         }
 
         fn schedule_receive_handling(&mut self) {
-            // handle_data_receive::spawn().ok();
+            handle_data_receive::spawn().ok();
         }
 
         fn config_error_led(&mut self) {
