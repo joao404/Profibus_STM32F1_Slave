@@ -115,7 +115,9 @@ pub struct PbDpSlave<
     timer_timeout_in_us: u32,
 
     input_data: [u8; INPUT_DATA_SIZE],
+    input_data_buffer: [u8; INPUT_DATA_SIZE],
     output_data: [u8; OUTPUT_DATA_SIZE],
+    output_data_buffer: [u8; OUTPUT_DATA_SIZE],
     user_para: [u8; USER_PARA_SIZE],
     extern_diag_para: [u8; EXTERN_DIAG_PARA_SIZE],
     module_config: [u8; MODULE_CONFIG_SIZE],
@@ -133,8 +135,8 @@ pub struct PbDpSlave<
     watchdog_act: bool,
     min_tsdr: u8,
 
-    freeze_act: bool,
-    sync_act: bool,
+    freeze_configured: bool,
+    sync_configured: bool,
 
     last_connection_time: u32,
     watchdog_time: u32,
@@ -190,7 +192,9 @@ where
         // let vendor_data = Vec::<u8, VendorDatalen>::new();
 
         let input_data = [0; INPUT_DATA_SIZE];
+        let input_data_buffer = [0; INPUT_DATA_SIZE];
         let output_data = [0; OUTPUT_DATA_SIZE];
+        let output_data_buffer = [0; OUTPUT_DATA_SIZE];
         let user_para = [0; USER_PARA_SIZE];
         let extern_diag_para = [0; EXTERN_DIAG_PARA_SIZE];
 
@@ -209,6 +213,8 @@ where
 
         let current_time = interface.millis();
 
+        interface.debug_write("Profi");
+
         Self {
             config,
             interface,
@@ -225,7 +231,9 @@ where
             timeout_max_sdr_time_in_us,
             timer_timeout_in_us: timeout_max_syn_time_in_us,
             input_data,
+            input_data_buffer,
             output_data,
+            output_data_buffer,
             user_para,
             extern_diag_para,
             module_config,
@@ -239,8 +247,8 @@ where
             sync: false,
             watchdog_act: false,
             min_tsdr: 0,
-            freeze_act: false,
-            sync_act: false,
+            freeze_configured: false,
+            sync_configured: false,
             last_connection_time: current_time,
             watchdog_time: 0xFFFFFF,
         }
@@ -683,27 +691,29 @@ where
                             if (self.rx_buffer[9] & sap_global_control::UNFREEZE) != 0 {
                                 // FREEZE Zustand loeschen
                                 self.freeze = false;
-                                // m_datafunc(NULL,&(self.tx_buffer[7]));//outputs,inputs
+                                self.interface
+                                    .data_processing(&mut self.input_data[..], &[0; 0]);
+                                //TODO: only a copy is given
+                                self.input_data_buffer = self.input_data;
                             } else if (self.rx_buffer[9] & sap_global_control::UNSYNC) != 0 {
                                 // SYNC Zustand loeschen
                                 self.sync = false;
+                                self.output_data = self.output_data_buffer;
                                 self.interface
                                     .data_processing(&mut [0; 0], &self.output_data[..]);
                             } else if (self.rx_buffer[9] & sap_global_control::FREEZE) != 0 {
                                 // Eingaenge nicht mehr neu einlesen
-                                if self.freeze {
-                                    self.interface
-                                        .data_processing(&mut self.input_data[..], &[0; 0]);
-                                }
                                 self.freeze = true;
+                                self.interface
+                                    .data_processing(&mut self.input_data[..], &[0; 0]);
+                                //TODO: only a copy is given
+                                self.input_data_buffer = self.input_data;
                             } else if (self.rx_buffer[9] & sap_global_control::SYNC) != 0 {
                                 // Ausgaenge nur bei SYNC Befehl setzen
-
-                                if self.sync {
-                                    self.interface
-                                        .data_processing(&mut [0; 0], &self.output_data[..]);
-                                }
                                 self.sync = true;
+                                self.output_data = self.output_data_buffer;
+                                self.interface
+                                    .data_processing(&mut [0; 0], &self.output_data[..]);
                             }
                         }
                     }
@@ -743,11 +753,11 @@ where
                                 diagnose_data[3] |= sap_diagnose_byte2::WD_ON;
                             }
 
-                            if self.freeze_act {
+                            if self.freeze_configured {
                                 diagnose_data[3] |= sap_diagnose_byte2::FREEZE_MODE;
                             }
 
-                            if self.sync_act {
+                            if self.sync_configured {
                                 diagnose_data[3] |= sap_diagnose_byte2::SYNC_MODE;
                             }
 
@@ -819,15 +829,15 @@ where
 
                             if (self.rx_buffer[9] & sap_set_parameter_request::ACTIVATE_FREEZE) != 0
                             {
-                                self.freeze_act = true;
+                                self.freeze_configured = true;
                             } else {
-                                self.freeze_act = false;
+                                self.freeze_configured = false;
                             }
 
                             if (self.rx_buffer[9] & sap_set_parameter_request::ACTIVATE_SYNC) != 0 {
-                                self.sync_act = true;
+                                self.sync_configured = true;
                             } else {
-                                self.sync_act = false;
+                                self.sync_configured = false;
                             }
 
                             // watchdog1 = m_pbUartRxBuffer[10];
@@ -952,59 +962,54 @@ where
                 else if function_code == (fc_request::REQUEST + fc_request::SRD_HIGH)
                     || function_code == (fc_request::REQUEST + fc_request::SRD_LOW)
                 {
-                    if self.sync_act && self.sync
+                    let output_data_len = usize::from(pdu_len - 3);
+
+                    if self.sync_configured && self.sync
                     // write data in output_register when sync
                     {
-                        //TODO: size check
-                        if self.output_data.len() > 0 {
-                            for i in 0..usize::from(pdu_len - 3) {
-                                self.output_data[i] = self.rx_buffer[7 + i];
+                        if self.output_data_buffer.len() > 0 {
+                            if output_data_len == self.output_data_buffer.len() {
+                                for i in 0..output_data_len {
+                                    self.output_data_buffer[i] = self.rx_buffer[7 + i];
+                                }
                             }
                         }
                     } else
                     // normaler Betrieb
                     {
-                        if self.output_data.len() > 0 {
-                            for i in 0..usize::from(pdu_len - 3) {
-                                self.output_data[i] = self.rx_buffer[7 + i];
+                        if self.output_data_buffer.len() > 0 {
+                            if output_data_len == self.output_data_buffer.len() {
+                                for i in 0..output_data_len {
+                                    self.output_data_buffer[i] = self.rx_buffer[7 + i];
+                                }
                             }
                         }
+                        self.output_data = self.output_data_buffer;
                         self.interface
                             .data_processing(&mut [0; 0], &self.output_data[..]);
                     }
 
-                    if self.freeze_act && self.freeze
-                    // write input_register in telegram when freeze
-                    {
-                        // if self.input_data.len() > 0
-                        // {
-                        //   self.tx_buffer[7..(7+self.input_data.len())] = self.input_data;
-                        // }
-                        //TODO => freeze does not work
-                        self.input_data[0] = 1;
-                    } else
+                    if !(self.freeze_configured && self.freeze)
                     // normaler Betrieb
                     {
-                        // self.interface
-                        //     .data_processing(&mut self.input_data[..], &[0; 0]);
-                        // if self.input_data.len() > 0
-                        // {
-                        //   self.tx_buffer[7..(7+self.input_data.len())] = self.input_data;
-                        // }
-                        self.input_data[0] = 1;
+                        self.interface
+                            .data_processing(&mut self.input_data[..], &[0; 0]);
+                        self.input_data_buffer = self.input_data;
+                        if self.input_data.len() > 0 {
+                            // self.input_data[0] = 1;
+                        }
                     }
 
-                    if self.input_data.len() > 0 {
-                        if (self.diagnose_status_1 & sap_diagnose_byte1::EXT_DIAG) != 0 {
+                    if self.input_data_buffer.len() > 0 {
+                        if (self.diagnose_status_1 & sap_diagnose_byte1::EXT_DIAG) != 0 {//TODO
                             self.transmit_message_sd2(fc_response::DATA_HIGH, 0, &[0; 0], &[0; 0]);
                             response = true;
                             // Diagnose Abfrage anfordern
                         } else {
                             let mut buf: [u8; INPUT_DATA_SIZE] = [0; INPUT_DATA_SIZE];
-                            buf.copy_from_slice(&self.input_data[..]);
+                            buf.copy_from_slice(&self.input_data_buffer[..]);
                             self.transmit_message_sd2(fc_response::DATA_LOW, 0, &buf, &[0; 0]);
                             response = true;
-                            // Daten senden
                         }
                     } else {
                         // TODO
