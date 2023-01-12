@@ -357,9 +357,7 @@ mod app {
 
         fn set_tx_flag(&mut self) {}
 
-        fn clear_tx_flag(&mut self) {
-            self.tx.clear_transmission_complete_interrupt()
-        }
+        fn clear_tx_flag(&mut self) {}
 
         fn clear_rx_flag(&mut self) {}
 

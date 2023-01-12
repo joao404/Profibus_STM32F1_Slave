@@ -126,8 +126,8 @@ pub struct PbDpSlave<
     master_addr: u8,
     group: u8,
 
-    source_add_last: u8,
-    fcv_act: bool,
+    source_addr: u8,
+    fcv_activated: bool,
     fcb_last: bool,
 
     freeze: bool,
@@ -240,8 +240,8 @@ where
             diagnose_status_1: sap_diagnose_byte1::STATION_NOT_READY,
             master_addr: 0xFF,
             group: 0,
-            source_add_last: 0xFF,
-            fcv_act: false,
+            source_addr: 0xFF,
+            fcv_activated: false,
             fcb_last: false,
             freeze: false,
             sync: false,
@@ -284,14 +284,12 @@ where
         loop {
             match self.interface.get_uart_value() {
                 Some(data) => {
-                    self.rx_buffer[self.rx_len] = data;
-                    // if we waited for TSYN, data can be saved
                     if StreamState::WaitData == self.stream_state {
                         self.stream_state = StreamState::GetData;
                     }
 
-                    // Einlesen erlaubt?
                     if StreamState::GetData == self.stream_state {
+                        self.rx_buffer[self.rx_len] = data;
                         if self.rx_len < self.rx_buffer.len() {
                             self.rx_len += 1;
                         }
@@ -307,11 +305,9 @@ where
         self.interface.stop_timer();
         if self.config.tx_handling == UartAccess::SingleByte {
             if self.tx_pos < self.tx_len {
-                // TX Buffer fuellen
                 self.interface.clear_tx_flag();
                 self.interface.set_uart_value(self.tx_buffer[self.tx_pos]);
                 self.tx_pos += 1;
-                // m_printfunc(m_txCnt);
             } else {
                 self.interface.tx_rs485_disable();
                 // Alles gesendet, Interrupt wieder aus
@@ -392,7 +388,7 @@ where
 
     fn transmit_message_sd1(&mut self, function_code: u8, sap_offset: u8) {
         self.tx_buffer[0] = cmd_type::SD1;
-        self.tx_buffer[1] = self.master_addr;
+        self.tx_buffer[1] = self.source_addr;
         self.tx_buffer[2] = self.config.addr + sap_offset;
         self.tx_buffer[3] = function_code;
         let checksum = self.calc_checksum(&self.tx_buffer[1..4]);
@@ -413,7 +409,7 @@ where
         self.tx_buffer[1] = 3 + pdu1.len().to_le_bytes()[0] + pdu2.len().to_le_bytes()[0];
         self.tx_buffer[2] = 3 + pdu1.len().to_le_bytes()[0] + pdu2.len().to_le_bytes()[0];
         self.tx_buffer[3] = cmd_type::SD2;
-        self.tx_buffer[4] = self.master_addr;
+        self.tx_buffer[4] = self.source_addr;
         self.tx_buffer[5] = self.config.addr + sap_offset;
         self.tx_buffer[6] = function_code;
         if pdu1.len() > 0 {
@@ -438,7 +434,7 @@ where
     #[allow(dead_code)]
     fn transmit_message_sd3(&mut self, function_code: u8, sap_offset: u8, pdu: &[u8; 8]) {
         self.tx_buffer[0] = cmd_type::SD3;
-        self.tx_buffer[1] = self.master_addr;
+        self.tx_buffer[1] = self.source_addr;
         self.tx_buffer[2] = self.config.addr + sap_offset;
         self.tx_buffer[3] = function_code;
         for i in 0..pdu.len() {
@@ -454,7 +450,7 @@ where
     #[allow(dead_code)]
     fn transmit_message_sd4(&mut self, sap_offset: u8) {
         self.tx_buffer[0] = cmd_type::SD4;
-        self.tx_buffer[1] = self.master_addr;
+        self.tx_buffer[1] = self.source_addr;
         self.tx_buffer[2] = self.config.addr + sap_offset;
         self.tx_len = 3;
         self.transmit();
@@ -518,8 +514,8 @@ where
         let mut response = false;
 
         // Profibus Datentypen
-        let mut destination_add: u8 = 0;
-        let mut source_add: u8 = 0;
+        let mut destination_addr: u8 = 0;
+        let mut source_addr: u8 = 0;
         let mut function_code: u8 = 0;
         let mut pdu_len: u8 = 0; // PDU Groesse
 
@@ -527,12 +523,12 @@ where
             cmd_type::SD1 => {
                 if 6 == self.rx_len {
                     if cmd_type::ED == self.rx_buffer[5] {
-                        destination_add = self.rx_buffer[1];
-                        source_add = self.rx_buffer[2];
+                        destination_addr = self.rx_buffer[1];
+                        source_addr = self.rx_buffer[2];
                         function_code = self.rx_buffer[3];
                         let fcs_data = self.rx_buffer[4]; // Frame Check Sequence
 
-                        if self.check_destination_addr(destination_add) {
+                        if self.check_destination_addr(destination_addr) {
                             if fcs_data == self.calc_checksum(&self.rx_buffer[1..4]) {
                                 // FCV und FCB loeschen, da vorher überprüft
                                 function_code &= 0xCF;
@@ -548,11 +544,11 @@ where
                     if self.rx_len == usize::from(self.rx_buffer[1] + 6) {
                         if cmd_type::ED == self.rx_buffer[self.rx_len - 1] {
                             pdu_len = self.rx_buffer[1]; // DA+SA+FC+Nutzdaten
-                            destination_add = self.rx_buffer[4];
-                            source_add = self.rx_buffer[5];
+                            destination_addr = self.rx_buffer[4];
+                            source_addr = self.rx_buffer[5];
                             function_code = self.rx_buffer[6];
                             let fcs_data = self.rx_buffer[usize::from(pdu_len + 4)]; // Frame Check Sequence
-                            if self.check_destination_addr(destination_add) {
+                            if self.check_destination_addr(destination_addr) {
                                 if fcs_data
                                     == self.calc_checksum(
                                         &self.rx_buffer[4..usize::from(self.rx_len - 2)],
@@ -572,12 +568,12 @@ where
                 if 14 == self.rx_len {
                     if cmd_type::ED == self.rx_buffer[13] {
                         pdu_len = 11; // DA+SA+FC+Nutzdaten
-                        destination_add = self.rx_buffer[1];
-                        source_add = self.rx_buffer[2];
+                        destination_addr = self.rx_buffer[1];
+                        source_addr = self.rx_buffer[2];
                         function_code = self.rx_buffer[3];
                         let fcs_data = self.rx_buffer[12]; // Frame Check Sequence
 
-                        if self.check_destination_addr(destination_add) {
+                        if self.check_destination_addr(destination_addr) {
                             if fcs_data == self.calc_checksum(&self.rx_buffer[1..12]) {
                                 // FCV und FCB loeschen, da vorher überprüft
                                 function_code &= 0xCF;
@@ -590,10 +586,10 @@ where
 
             cmd_type::SD4 => {
                 if 3 == self.rx_len {
-                    destination_add = self.rx_buffer[1];
-                    source_add = self.rx_buffer[2];
+                    destination_addr = self.rx_buffer[1];
+                    source_addr = self.rx_buffer[2];
 
-                    if self.check_destination_addr(destination_add) {
+                    if self.check_destination_addr(destination_addr) {
                         //TODO
                     }
                 }
@@ -605,41 +601,36 @@ where
         if process_data {
             self.last_connection_time = self.interface.millis(); // letzte Zeit eines Telegramms sichern
 
-            self.master_addr = source_add; // Master Adresse ist Source Adresse
-
             if (function_code & 0x30) == fc_request::FCB
             // Startbedingung
             {
-                self.fcv_act = true;
+                self.fcv_activated = true;
                 self.fcb_last = true;
-            } else if self.fcv_act {
-                // Adresse wie vorher?
-                if source_add != self.source_add_last {
-                    // neue Verbindung und damit FCV ungültig
-                    self.fcv_act = false;
+            } else if self.fcv_activated {
+                if source_addr != self.source_addr {
+                    // new address so fcv is deactivated
+                    self.fcv_activated = false;
                 } else if ((function_code & fc_request::FCB) != 0) == self.fcb_last
-                // FCB ist gleich geblieben
                 {
-                    // Nachricht wiederholen
+                    // FCB is identical, repeat message
                     response = true;
                     self.transmit();
-                    // die Nachricht liegt noch im Speicher
                 } else
-                // Speichern des neuen FCB
                 {
-                    self.fcb_last = !self.fcb_last; // das negierte bit speichern, da sonst die vorherige Bedingung angeschlagen hätte
+                    // save new FCB bit
+                    self.fcb_last = !self.fcb_last;
                 }
             } else
             // wenn es keine Startbedingung gibt und wir nicht eingeschaltet sind, können wir fcv ausschalten
             {
-                self.fcv_act = false;
+                self.fcv_activated = false;
             }
 
             // letzte Adresse sichern
-            self.source_add_last = source_add;
+            self.source_addr = source_addr;
 
             // Service Access Point erkannt?
-            if ((destination_add & 0x80) != 0) && ((source_add & 0x80) != 0) {
+            if ((destination_addr & 0x80) != 0) && ((source_addr & 0x80) != 0) {
                 let dsap_data = self.rx_buffer[7]; // sap destination
                 let ssap_data = self.rx_buffer[8]; // sap source
 
@@ -651,20 +642,21 @@ where
                 // 5) Data Exchange Request (normaler Zyklus)
 
                 // Siehe Felser 8/2009 Kap. 4.1
-                // m_printfunc((int)DSAP_data);
                 match dsap_data {
                     sap::SET_SLAVE_ADR => {
                         // Set Slave Address (SSAP 62 -> DSAP 55)
                         // Siehe Felser 8/2009 Kap. 4.2
-
-                        // Nur im Zustand "Wait Parameter" (WPRM) moeglich
-
                         if DpSlaveState::Wrpm == self.slave_state {
-                            // adresse ändern
-                            // new_addr = pb_uart_buffer[9];
-                            // IDENT_HIGH_BYTE = m_pbUartRxBuffer[10];
-                            // IDENT_LOW_BYTE = m_pbUartRxBuffer[11];
+
+                            if 9 == pdu_len
+                            {
+                            self.config.addr = self.rx_buffer[9];
+                            self.config.ident_high = self.rx_buffer[10];
+                            self.config.ident_low = self.rx_buffer[11];
+                            //TODO
                             // if (pb_uart_buffer[12] & 0x01) adress_aenderung_sperren = true;
+                            // trigger value saving
+                            }
                         }
                         response = true;
                         self.transmit_message_sc();
@@ -803,20 +795,7 @@ where
                         if (self.rx_buffer[13] == self.config.ident_high)
                             && (self.rx_buffer[14] == self.config.ident_low)
                         {
-                            // pb_uart_buffer[9]  = Befehl
-                            // pb_uart_buffer[10] = Watchdog 1
-                            // pb_uart_buffer[11] = Watchdog 2
-                            // pb_uart_buffer[12] = Min TSDR
-                            // pb_uart_buffer[13] = Ident H
-                            // pb_uart_buffer[14] = Ident L
-                            // pb_uart_buffer[15] = Gruppe
-                            // pb_uart_buffer[16] = User Parameter
-
-                            // Bei DPV1 Unterstuetzung:
-                            // pb_uart_buffer[16] = DPV1 Status 1
-                            // pb_uart_buffer[17] = DPV1 Status 2
-                            // pb_uart_buffer[18] = DPV1 Status 3
-                            // pb_uart_buffer[19] = User Parameter
+                            self.master_addr = source_addr - SAP_OFFSET;
 
                             if (self.rx_buffer[9] & sap_set_parameter_request::ACTIVATE_WATCHDOG)
                                 != 0
@@ -888,6 +867,7 @@ where
                         {
                             // Erste Diagnose Abfrage (Aufruf Telegramm)
                             let sap_data = [ssap_data, dsap_data];
+                            //TODO
                             let mut buf: [u8; MODULE_CONFIG_SIZE] = [0; MODULE_CONFIG_SIZE];
                             buf.copy_from_slice(&self.module_config[..]);
                             self.transmit_message_sd2(
@@ -946,7 +926,7 @@ where
                 } // Switch DSAP_data Ende
             }
             // Ziel: Slave Adresse, but no SAP
-            else if destination_add == self.config.addr {
+            else if destination_addr == self.config.addr {
                 // Status Abfrage
 
                 if function_code == (fc_request::REQUEST + fc_request::FDL_STATUS) {
