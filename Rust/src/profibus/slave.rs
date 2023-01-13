@@ -272,9 +272,9 @@ where
     }
 
     pub fn serial_interrupt_handler(&mut self) {
-        if self.interface.rx_data_received() {
+        if self.interface.is_rx_received() {
             self.rx_interrupt_handler();
-        } else if self.interface.tx_data_send() {
+        } else if self.interface.is_tx_done() {
             self.tx_interrupt_handler();
         }
     }
@@ -326,10 +326,7 @@ where
     }
 
     pub fn timer_interrupt_handler(&mut self) {
-        // Timer A Stop
         self.interface.stop_timer();
-        // self.interface.serial_write(b'c');
-
         match self.stream_state {
             StreamState::WaitSyn => {
                 self.stream_state = StreamState::WaitData;

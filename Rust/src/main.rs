@@ -365,11 +365,11 @@ mod app {
             while !self.tx.is_tx_complete() {}
         }
 
-        fn rx_data_received(&mut self) -> bool {
+        fn is_rx_received(&mut self) -> bool {
             self.rx.is_rx_not_empty()
         }
 
-        fn tx_data_send(&mut self) -> bool {
+        fn is_tx_done(&mut self) -> bool {
             self.tx.is_tx_empty()
         }
 

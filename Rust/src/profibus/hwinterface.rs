@@ -27,11 +27,11 @@ pub trait HwInterface {
 
     fn wait_for_activ_transmission(&mut self) {}
 
-    fn rx_data_received(&mut self) -> bool {
+    fn is_rx_received(&mut self) -> bool {
         false
     }
 
-    fn tx_data_send(&mut self) -> bool {
+    fn is_tx_done(&mut self) -> bool {
         false
     }
 
