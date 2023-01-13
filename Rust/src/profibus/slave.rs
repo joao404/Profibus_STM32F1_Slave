@@ -1,4 +1,6 @@
-use super::hwinterface::HwInterface;
+use super::data_handling_interface::DataHandlingInterface;
+use super::hw_interface::HwInterface;
+
 use super::types::{
     cmd_type, fc_request, fc_response, sap, sap_diagnose_byte1, sap_diagnose_byte2,
     sap_diagnose_byte3, sap_diagnose_ext, sap_global_control, sap_set_parameter_request,
@@ -88,7 +90,8 @@ const MASTER_ADD_DEFAULT: u8 = 0xFF;
 
 #[allow(dead_code)]
 pub struct PbDpSlave<
-    T,
+    Serial,
+    DataHandling,
     const BUF_SIZE: usize,
     const INPUT_DATA_SIZE: usize,
     const OUTPUT_DATA_SIZE: usize,
@@ -97,7 +100,8 @@ pub struct PbDpSlave<
     const MODULE_CONFIG_SIZE: usize,
 > {
     config: Config,
-    interface: T,
+    hw_interface: Serial,
+    data_handling_interface: DataHandling,
     tx_buffer: [u8; BUF_SIZE],
     rx_buffer: [u8; BUF_SIZE],
 
@@ -143,7 +147,8 @@ pub struct PbDpSlave<
 }
 
 impl<
-        T,
+        Serial,
+        DataHandling,
         const BUF_SIZE: usize,
         const INPUT_DATA_SIZE: usize,
         const OUTPUT_DATA_SIZE: usize,
@@ -152,7 +157,8 @@ impl<
         const MODULE_CONFIG_SIZE: usize,
     >
     PbDpSlave<
-        T,
+        Serial,
+        DataHandling,
         BUF_SIZE,
         INPUT_DATA_SIZE,
         OUTPUT_DATA_SIZE,
@@ -161,10 +167,12 @@ impl<
         MODULE_CONFIG_SIZE,
     >
 where
-    T: HwInterface,
+    Serial: HwInterface,
+    DataHandling: DataHandlingInterface,
 {
     pub fn new(
-        mut interface: T,
+        mut hw_interface: Serial,
+        mut data_handling_interface: DataHandling,
         mut config: Config,
         module_config: [u8; MODULE_CONFIG_SIZE],
     ) -> Self {
@@ -199,25 +207,26 @@ where
         let extern_diag_para = [0; EXTERN_DIAG_PARA_SIZE];
 
         // Timer init
-        interface.config_timer();
+        hw_interface.config_timer();
         // LED Status
-        interface.config_error_led();
+        data_handling_interface.config_error_led();
         // Pin Init
-        interface.config_rs485_pin();
+        hw_interface.config_rs485_pin();
 
         // Uart Init
-        interface.config_uart();
-        interface.run_timer(timeout_max_syn_time_in_us);
-        interface.rx_rs485_enable();
-        interface.activate_rx_interrupt();
+        hw_interface.config_uart();
+        hw_interface.run_timer(timeout_max_syn_time_in_us);
+        hw_interface.rx_rs485_enable();
+        hw_interface.activate_rx_interrupt();
 
-        let current_time = interface.millis();
+        let current_time = data_handling_interface.millis();
 
-        interface.debug_write("Profi");
+        data_handling_interface.debug_write("Profi");
 
         Self {
             config,
-            interface,
+            hw_interface,
+            data_handling_interface,
             tx_buffer: [0; BUF_SIZE],
             rx_buffer: [0; BUF_SIZE],
             rx_len: 0,
@@ -266,23 +275,23 @@ where
         self.rx_len = 0;
         self.stream_state = StreamState::WaitSyn;
         self.timer_timeout_in_us = self.timeout_max_syn_time_in_us;
-        self.interface.run_timer(self.timer_timeout_in_us);
-        self.interface.rx_rs485_enable();
-        self.interface.deactivate_tx_interrupt();
+        self.hw_interface.run_timer(self.timer_timeout_in_us);
+        self.hw_interface.rx_rs485_enable();
+        self.hw_interface.deactivate_tx_interrupt();
     }
 
     pub fn serial_interrupt_handler(&mut self) {
-        if self.interface.is_rx_received() {
+        if self.hw_interface.is_rx_received() {
             self.rx_interrupt_handler();
-        } else if self.interface.is_tx_done() {
+        } else if self.hw_interface.is_tx_done() {
             self.tx_interrupt_handler();
         }
     }
 
     pub fn rx_interrupt_handler(&mut self) {
-        self.interface.stop_timer();
+        self.hw_interface.stop_timer();
         loop {
-            match self.interface.get_uart_value() {
+            match self.hw_interface.get_uart_value() {
                 Some(data) => {
                     if StreamState::WaitData == self.stream_state {
                         self.stream_state = StreamState::GetData;
@@ -298,89 +307,91 @@ where
                 None => break,
             }
         }
-        self.interface.run_timer(self.timer_timeout_in_us);
+        self.hw_interface.run_timer(self.timer_timeout_in_us);
     }
 
     pub fn tx_interrupt_handler(&mut self) {
-        self.interface.stop_timer();
+        self.hw_interface.stop_timer();
         if self.config.tx_handling == UartAccess::SingleByte {
             if self.tx_pos < self.tx_len {
-                self.interface.clear_tx_flag();
-                self.interface.set_uart_value(self.tx_buffer[self.tx_pos]);
+                self.hw_interface.clear_tx_flag();
+                self.hw_interface
+                    .set_uart_value(self.tx_buffer[self.tx_pos]);
                 self.tx_pos += 1;
             } else {
-                self.interface.tx_rs485_disable();
+                self.hw_interface.tx_rs485_disable();
                 // Alles gesendet, Interrupt wieder aus
-                self.interface.deactivate_tx_interrupt();
+                self.hw_interface.deactivate_tx_interrupt();
                 // clear Flag because we are not writing to buffer
-                self.interface.clear_tx_flag();
+                self.hw_interface.clear_tx_flag();
             }
         } else if self.config.tx_handling == UartAccess::Dma {
-            self.interface.tx_rs485_disable();
+            self.hw_interface.tx_rs485_disable();
             // Alles gesendet, Interrupt wieder aus
-            self.interface.deactivate_tx_interrupt();
+            self.hw_interface.deactivate_tx_interrupt();
             // clear Flag because we are not writing to buffer
-            self.interface.clear_tx_flag();
+            self.hw_interface.clear_tx_flag();
         }
-        self.interface.run_timer(self.timer_timeout_in_us);
+        self.hw_interface.run_timer(self.timer_timeout_in_us);
     }
 
     pub fn timer_interrupt_handler(&mut self) {
-        self.interface.stop_timer();
+        self.hw_interface.stop_timer();
         match self.stream_state {
             StreamState::WaitSyn => {
                 self.stream_state = StreamState::WaitData;
                 self.rx_len = 0;
-                self.interface.rx_rs485_enable(); // Auf Receive umschalten
+                self.hw_interface.rx_rs485_enable(); // Auf Receive umschalten
                 self.timer_timeout_in_us = self.timeout_max_sdr_time_in_us;
             }
             StreamState::GetData => {
                 self.timer_timeout_in_us = self.timeout_max_syn_time_in_us;
-                self.interface.deactivate_rx_interrupt();
+                self.hw_interface.deactivate_rx_interrupt();
                 if self.config.receive_handling == ReceiveHandling::Interrupt {
                     self.stream_state = StreamState::WaitSyn;
                     self.handle_data_receive();
                 } else if self.config.receive_handling == ReceiveHandling::Thread {
                     self.stream_state = StreamState::HandleData;
-                    self.interface.schedule_receive_handling();
+                    self.hw_interface.schedule_receive_handling();
                 }
             }
             StreamState::WaitMinTsdr => {
                 self.stream_state = StreamState::SendData;
                 self.timer_timeout_in_us = self.timeout_max_tx_time_in_us;
-                self.interface.wait_for_activ_transmission();
-                self.interface.tx_rs485_enable();
-                self.interface.clear_tx_flag();
+                self.hw_interface.wait_for_activ_transmission();
+                self.hw_interface.tx_rs485_enable();
+                self.hw_interface.clear_tx_flag();
                 if self.config.tx_handling == UartAccess::SingleByte {
-                    self.interface.set_uart_value(self.tx_buffer[self.tx_pos]);
-                    self.interface.activate_tx_interrupt();
+                    self.hw_interface
+                        .set_uart_value(self.tx_buffer[self.tx_pos]);
+                    self.hw_interface.activate_tx_interrupt();
                     self.tx_pos += 1;
-                    self.interface.run_timer(self.timer_timeout_in_us);
+                    self.hw_interface.run_timer(self.timer_timeout_in_us);
                 } else if self.config.tx_handling == UartAccess::Dma {
-                    self.interface.send_uart_data(&self.tx_buffer);
-                    self.interface.activate_tx_interrupt();
+                    self.hw_interface.send_uart_data(&self.tx_buffer);
+                    self.hw_interface.activate_tx_interrupt();
                 }
             }
             StreamState::SendData => {
                 self.stream_state = StreamState::WaitSyn;
                 self.timer_timeout_in_us = self.timeout_max_syn_time_in_us;
-                self.interface.rx_rs485_enable();
+                self.hw_interface.rx_rs485_enable();
             }
             _ => (),
         }
 
         if self.watchdog_act {
-            if (self.interface.millis() - self.last_connection_time) > self.watchdog_time {
+            if (self.data_handling_interface.millis() - self.last_connection_time) > self.watchdog_time {
                 self.output_data.fill(0);
                 //TODO:
                 // std::vector<uint8_t> unUsed;
                 // m_datafunc(m_outputReg, unUsed); // outputs,inputs
-                self.interface
+                self.data_handling_interface
                     .data_processing(&mut [0; 0], &self.output_data[..]);
             }
         }
 
-        self.interface.run_timer(self.timer_timeout_in_us);
+        self.hw_interface.run_timer(self.timer_timeout_in_us);
     }
 
     fn transmit_message_sd1(&mut self, function_code: u8, sap_offset: u8) {
@@ -460,29 +471,30 @@ where
     }
 
     fn transmit(&mut self) {
-        self.interface.stop_timer();
+        self.hw_interface.stop_timer();
         self.tx_pos = 0;
         if 0 != self.min_tsdr {
             self.stream_state = StreamState::WaitMinTsdr;
             self.timer_timeout_in_us = (self.config.counter_frequency * u32::from(self.min_tsdr))
                 / self.config.baudrate
                 / 2u32;
-            self.interface.run_timer(self.timer_timeout_in_us);
+            self.hw_interface.run_timer(self.timer_timeout_in_us);
         } else {
             self.stream_state = StreamState::SendData;
-            self.interface.wait_for_activ_transmission();
+            self.hw_interface.wait_for_activ_transmission();
             self.timer_timeout_in_us = self.timeout_max_tx_time_in_us;
             // activate Send Interrupt
-            self.interface.tx_rs485_enable();
-            self.interface.clear_tx_flag();
+            self.hw_interface.tx_rs485_enable();
+            self.hw_interface.clear_tx_flag();
             if self.config.tx_handling == UartAccess::SingleByte {
-                self.interface.set_uart_value(self.tx_buffer[self.tx_pos]);
-                self.interface.activate_tx_interrupt();
+                self.hw_interface
+                    .set_uart_value(self.tx_buffer[self.tx_pos]);
+                self.hw_interface.activate_tx_interrupt();
                 self.tx_pos += 1;
-                self.interface.run_timer(self.timer_timeout_in_us);
+                self.hw_interface.run_timer(self.timer_timeout_in_us);
             } else if self.config.tx_handling == UartAccess::Dma {
-                self.interface.send_uart_data(&self.tx_buffer);
-                self.interface.activate_tx_interrupt();
+                self.hw_interface.send_uart_data(&self.tx_buffer);
+                self.hw_interface.activate_tx_interrupt();
             }
         }
     }
@@ -596,7 +608,7 @@ where
         } // match self.buffer[0]
 
         if process_data {
-            self.last_connection_time = self.interface.millis(); // letzte Zeit eines Telegramms sichern
+            self.last_connection_time = self.data_handling_interface.millis(); // letzte Zeit eines Telegramms sichern
 
             if (function_code & 0x30) == fc_request::FCB
             // Startbedingung
@@ -607,13 +619,11 @@ where
                 if source_addr != self.source_addr {
                     // new address so fcv is deactivated
                     self.fcv_activated = false;
-                } else if ((function_code & fc_request::FCB) != 0) == self.fcb_last
-                {
+                } else if ((function_code & fc_request::FCB) != 0) == self.fcb_last {
                     // FCB is identical, repeat message
                     response = true;
                     self.transmit();
-                } else
-                {
+                } else {
                     // save new FCB bit
                     self.fcb_last = !self.fcb_last;
                 }
@@ -644,15 +654,13 @@ where
                         // Set Slave Address (SSAP 62 -> DSAP 55)
                         // Siehe Felser 8/2009 Kap. 4.2
                         if DpSlaveState::Wrpm == self.slave_state {
-
-                            if 9 == pdu_len
-                            {
-                            self.config.addr = self.rx_buffer[9];
-                            self.config.ident_high = self.rx_buffer[10];
-                            self.config.ident_low = self.rx_buffer[11];
-                            //TODO
-                            // if (pb_uart_buffer[12] & 0x01) adress_aenderung_sperren = true;
-                            // trigger value saving
+                            if 9 == pdu_len {
+                                self.config.addr = self.rx_buffer[9];
+                                self.config.ident_high = self.rx_buffer[10];
+                                self.config.ident_low = self.rx_buffer[11];
+                                //TODO
+                                // if (pb_uart_buffer[12] & 0x01) adress_aenderung_sperren = true;
+                                // trigger value saving
                             }
                         }
                         response = true;
@@ -665,9 +673,9 @@ where
 
                         // Wenn "Clear Data" high, dann SPS CPU auf "Stop"
                         if (self.rx_buffer[9] & sap_global_control::CLEAR_DATA) != 0 {
-                            self.interface.error_led_on(); // Status "SPS nicht bereit"
+                            self.data_handling_interface.error_led_on(); // Status "SPS nicht bereit"
                         } else {
-                            self.interface.error_led_off(); // Status "SPS OK"
+                            self.data_handling_interface.error_led_off(); // Status "SPS OK"
                         }
 
                         // Gruppe berechnen
@@ -680,7 +688,7 @@ where
                             if (self.rx_buffer[9] & sap_global_control::UNFREEZE) != 0 {
                                 // FREEZE Zustand loeschen
                                 self.freeze = false;
-                                self.interface
+                                self.data_handling_interface
                                     .data_processing(&mut self.input_data[..], &[0; 0]);
                                 //TODO: only a copy is given
                                 self.input_data_buffer = self.input_data;
@@ -688,12 +696,12 @@ where
                                 // SYNC Zustand loeschen
                                 self.sync = false;
                                 self.output_data = self.output_data_buffer;
-                                self.interface
+                                self.data_handling_interface
                                     .data_processing(&mut [0; 0], &self.output_data[..]);
                             } else if (self.rx_buffer[9] & sap_global_control::FREEZE) != 0 {
                                 // Eingaenge nicht mehr neu einlesen
                                 self.freeze = true;
-                                self.interface
+                                self.data_handling_interface
                                     .data_processing(&mut self.input_data[..], &[0; 0]);
                                 //TODO: only a copy is given
                                 self.input_data_buffer = self.input_data;
@@ -701,7 +709,7 @@ where
                                 // Ausgaenge nur bei SYNC Befehl setzen
                                 self.sync = true;
                                 self.output_data = self.output_data_buffer;
-                                self.interface
+                                self.data_handling_interface
                                     .data_processing(&mut [0; 0], &self.output_data[..]);
                             }
                         }
@@ -962,14 +970,14 @@ where
                             }
                         }
                         self.output_data = self.output_data_buffer;
-                        self.interface
+                        self.data_handling_interface
                             .data_processing(&mut [0; 0], &self.output_data[..]);
                     }
 
                     if !(self.freeze_configured && self.freeze)
                     // normaler Betrieb
                     {
-                        self.interface
+                        self.data_handling_interface
                             .data_processing(&mut self.input_data[..], &[0; 0]);
                         self.input_data_buffer = self.input_data;
                         if self.input_data.len() > 0 {
@@ -978,7 +986,8 @@ where
                     }
 
                     if self.input_data_buffer.len() > 0 {
-                        if (self.diagnose_status_1 & sap_diagnose_byte1::EXT_DIAG) != 0 {//TODO
+                        if (self.diagnose_status_1 & sap_diagnose_byte1::EXT_DIAG) != 0 {
+                            //TODO
                             self.transmit_message_sd2(fc_response::DATA_HIGH, 0, &[0; 0], &[0; 0]);
                             response = true;
                             // Diagnose Abfrage anfordern
@@ -1003,6 +1012,6 @@ where
         if !response {
             self.reset_data_stream();
         }
-        self.interface.activate_rx_interrupt();
+        self.hw_interface.activate_rx_interrupt();
     }
 }

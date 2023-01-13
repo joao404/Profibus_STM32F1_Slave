@@ -34,8 +34,15 @@ mod rtc_millis;
 
 #[rtic::app(device = stm32f1xx_hal::pac, dispatchers = [I2C1_EV], peripherals = true,)]
 mod app {
-    use crate::profibus::{Config as PbDpConfig, HwInterface, PbDpSlave, ReceiveHandling};
+    use crate::profibus::{
+        Config as PbDpConfig, DataHandlingInterface as PbDataHandling, HwInterface as PbInterface,
+        PbDpSlave, ReceiveHandling,
+    };
     use crate::rtc_millis::Rtc;
+    use heapless::{
+        spsc::{Consumer, Producer, Queue},
+        String,
+    };
     use nb::block;
     use stm32f1xx_hal::{
         // dma::{dma1::C2, dma1::C3, RxDma, TxDma},
@@ -44,10 +51,6 @@ mod app {
         prelude::*,
         serial::{Config, Rx as serialRx, Serial, Tx as serialTx},
         timer::{CounterUs, Event},
-    };
-    use heapless::{
-        spsc::{Consumer, Producer, Queue},
-        String,
     };
 
     use dwt_systick_monotonic::{DwtSystick, ExtU32};
@@ -78,6 +81,7 @@ mod app {
         debug_producer: Producer<'static, u8, DEBUG_QUEUE_SIZE>,
         profibus_slave: PbDpSlave<
             PbDpHwInterface,
+            PbDpDataHandling,
             PROFIBUS_BUF_SIZE,
             INPUT_DATA_SIZE,
             OUTPUT_DATA_SIZE,
@@ -180,12 +184,16 @@ mod app {
 
         let debug_pin = gpioa.pa7.into_push_pull_output(&mut gpioa.crl);
 
-        let interface = PbDpHwInterface::new(
-            serial3_tx, serial3_rx, tx_en, rx_en, timer, rtc, debug_pin,
-        );
+        let serial_interface = PbDpHwInterface::new(serial3_tx, serial3_rx, tx_en, rx_en, timer);
 
-        let profibus_slave =
-            PbDpSlave::new(interface, profibus_config, [0x22, 0x20, 0x20, 0x10, 0x10]);
+        let data_interface = PbDpDataHandling::new(rtc, debug_pin);
+
+        let profibus_slave = PbDpSlave::new(
+            serial_interface,
+            data_interface,
+            profibus_config,
+            [0x22, 0x20, 0x20, 0x10, 0x10],
+        );
 
         blinky::spawn().unwrap();
 
@@ -214,13 +222,13 @@ mod app {
 
         loop {
             // debug_consumer.lock(|debug_consumer| {
-                if let Some(data) = debug_consumer.dequeue() {
-                    block!(serial1_tx.write(data)).ok();
-                }
-                // match debug_consumer.dequeue() {
-                //     Some(data) => {block!(serial1_tx.write(data)).ok();},
-                //     None => { /* sleep */ },
-                // }
+            if let Some(data) = debug_consumer.dequeue() {
+                block!(serial1_tx.write(data)).ok();
+            }
+            // match debug_consumer.dequeue() {
+            //     Some(data) => {block!(serial1_tx.write(data)).ok();},
+            //     None => { /* sleep */ },
+            // }
             // });
         }
     }
@@ -231,8 +239,7 @@ mod app {
         let mut profibus_slave = cx.shared.profibus_slave;
         profibus_slave.lock(|profibus_slave| {
             let input = profibus_slave.access_input();
-            if input.len() > 0
-            {
+            if input.len() > 0 {
                 input[0] += 1;
             }
         });
@@ -290,9 +297,6 @@ mod app {
         tx_en: gpiob::PB1<Output<PushPull>>,
         rx_en: gpiob::PB0<Output<PushPull>>,
         timer_handler: CounterUs<TIM2>,
-        rtc: Rtc,
-        debug_pin: gpioa::PA7<Output<PushPull>>,
-        // serial_tx:TxDma<serialTx<USART1>, C4>
     }
 
     impl PbDpHwInterface {
@@ -304,9 +308,6 @@ mod app {
             tx_en: gpiob::PB1<Output<PushPull>>,
             rx_en: gpiob::PB0<Output<PushPull>>,
             timer_handler: CounterUs<TIM2>,
-            rtc: Rtc,
-            debug_pin: gpioa::PA7<Output<PushPull>>,
-            // serial_tx: TxDma<serialTx<USART1>, C4>,
         ) -> Self {
             PbDpHwInterface {
                 tx,
@@ -316,13 +317,11 @@ mod app {
                 tx_en,
                 rx_en,
                 timer_handler,
-                rtc,
-                debug_pin,
             }
         }
     }
 
-    impl HwInterface for PbDpHwInterface {
+    impl PbInterface for PbDpHwInterface {
         fn config_timer(&mut self) {}
 
         fn run_timer(&mut self, _timeout_in_us: u32) {
@@ -407,7 +406,20 @@ mod app {
         fn schedule_receive_handling(&mut self) {
             handle_data_receive::spawn().ok();
         }
+    }
 
+    pub struct PbDpDataHandling {
+        rtc: Rtc,
+        debug_pin: gpioa::PA7<Output<PushPull>>,
+    }
+
+    impl PbDpDataHandling {
+        pub fn new(rtc: Rtc, debug_pin: gpioa::PA7<Output<PushPull>>) -> Self {
+            PbDpDataHandling { rtc, debug_pin }
+        }
+    }
+
+    impl PbDataHandling for PbDpDataHandling {
         fn config_error_led(&mut self) {
             self.debug_pin.set_high();
         }

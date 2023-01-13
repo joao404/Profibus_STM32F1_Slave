@@ -1,4 +1,5 @@
-pub use hwinterface::HwInterface;
+pub use hw_interface::HwInterface;
+pub use data_handling_interface::DataHandlingInterface;
 pub use slave::{Config, UartAccess, ReceiveHandling, PbDpSlave};
 pub use types::{
     cmd_type, dpv1_status_byte1, dpv1_status_byte2, dpv1_status_byte3, fc_request, fc_response,
@@ -7,6 +8,7 @@ pub use types::{
     sap,
 };
 
-pub mod hwinterface;
+pub mod hw_interface;
+pub mod data_handling_interface;
 pub mod slave;
 mod types;
