@@ -18,7 +18,7 @@ cortex-m = "0.7.6"
 cortex-m-rt = "0.7.1"
 cortex-m-semihosting = "0.5.0"
 panic-halt = "0.2.0"
-bxcan = "0.6.2"
+#bxcan = "0.6.2"
 #stm32f1xx-hal = {version = "0.10.0" , features = ["rt", "stm32f103", "medium"]}
 stm32f1xx-hal = {git = "https://github.com/joao404/stm32f1xx-hal" , features = ["rt", "stm32f103", "medium"]}
 cortex-m-rtic = "1.1.3"

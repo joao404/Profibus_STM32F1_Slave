@@ -46,17 +46,6 @@ checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
 name = "bxcan"
-version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b13b4b2ea9ab2ba924063ebb86ad895cb79f4a79bf90f27949eb20c335b30f9"
-dependencies = [
- "bitflags",
- "nb 1.0.0",
- "vcell",
-]
-
-[[package]]
-name = "bxcan"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40ac3d0c0a542d0ab5521211f873f62706a7136df415676f676d347e5a41dd80"
@@ -450,7 +439,6 @@ dependencies = [
 name = "stm32f1_rust_can"
 version = "0.1.0"
 dependencies = [
- "bxcan 0.6.2",
  "cortex-m",
  "cortex-m-rt",
  "cortex-m-rtic",
@@ -471,7 +459,7 @@ version = "0.10.0"
 source = "git+https://github.com/joao404/stm32f1xx-hal#db301c9d3937e8cb7bf1113add46de8ef5981921"
 dependencies = [
  "bitflags",
- "bxcan 0.7.0",
+ "bxcan",
  "cortex-m",
  "cortex-m-rt",
  "embedded-dma",

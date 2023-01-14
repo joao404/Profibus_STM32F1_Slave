@@ -32,15 +32,25 @@ pub trait HwInterface {
 
     fn deactivate_rx_interrupt(&mut self) {}
 
+    fn activate_idle_interrupt(&mut self) {}
+
+    fn deactivate_idle_interrupt(&mut self) {}
+
     fn set_tx_flag(&mut self) {}
 
     fn clear_tx_flag(&mut self) {}
 
     fn clear_rx_flag(&mut self) {}
 
+    fn clear_idle_flag(&mut self) {}
+
     fn wait_for_activ_transmission(&mut self) {}
 
     fn is_rx_received(&mut self) -> bool {
+        false
+    }
+
+    fn is_rx_idle(&mut self) -> bool {
         false
     }
 
@@ -67,6 +77,10 @@ pub trait HwInterface {
     fn get_uart_data(&mut self, _value: &mut [u8]) {}
 
     fn schedule_receive_handling(&mut self) {}
+
+    fn get_baudrate(&self) -> u32 {0}
+
+    fn get_timer_frequency(&self) -> u32 {0}
 
     fn debug_write(&mut self, _debug: &str) {}
 }

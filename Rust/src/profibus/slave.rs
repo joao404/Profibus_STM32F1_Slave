@@ -1,5 +1,6 @@
 use super::data_handling_interface::DataHandlingInterface;
 use super::hw_interface::HwInterface;
+use super::fdl::{UartAccess, ReceiveHandling};
 
 use super::types::{
     cmd_type, fc_request, fc_response, sap, sap_diagnose_byte1, sap_diagnose_byte2,
@@ -7,20 +8,8 @@ use super::types::{
     DpSlaveState, StreamState,
 };
 
-#[derive(PartialEq, Eq)]
-pub enum UartAccess {
-    SingleByte,
-    Dma,
-}
-
-#[derive(PartialEq, Eq)]
-pub enum ReceiveHandling {
-    Interrupt,
-    Thread,
-}
-
 pub struct Config {
-    ident_high: u8,
+    ident_high: u8,   
     ident_low: u8,
     addr: u8,
     counter_frequency: u32,

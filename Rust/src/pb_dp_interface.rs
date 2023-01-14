@@ -14,8 +14,11 @@
  * LICENSE file for more details.
  */
 
-use crate::app::{handle_data_receive, timer2_max, usart3_rx, save_debug_message, DEBUG_STRING_SIZE};
+use crate::app::{
+    handle_data_receive, save_debug_message, timer2_max, usart3_rx, DEBUG_STRING_SIZE,
+};
 use crate::profibus::{DataHandlingInterface as PbDataHandling, HwInterface as PbInterface};
+use crate::rtc_millis::Rtc;
 use heapless::String;
 use rtic::mutex_prelude::*;
 use stm32f1xx_hal::{
@@ -26,7 +29,6 @@ use stm32f1xx_hal::{
     serial::{Config, Rx as serialRx, Serial, Tx as serialTx},
     timer::{CounterUs, Event},
 };
-use crate::rtc_millis::Rtc;
 
 pub(crate) fn handle_data_receive(cx: handle_data_receive::Context) {
     let mut profibus_slave = cx.shared.profibus_slave;
@@ -117,11 +119,23 @@ impl PbInterface for PbDpHwInterface {
         self.rx.unlisten();
     }
 
+    fn activate_idle_interrupt(&mut self) {
+        self.rx.listen_idle();
+    }
+
+    fn deactivate_idle_interrupt(&mut self) {
+        self.rx.unlisten_idle();
+    }
+
     fn set_tx_flag(&mut self) {}
 
     fn clear_tx_flag(&mut self) {}
 
     fn clear_rx_flag(&mut self) {}
+
+    fn clear_idle_flag(&mut self) {
+        self.rx.clear_idle_interrupt();
+    }
 
     fn wait_for_activ_transmission(&mut self) {
         while !self.tx.is_tx_complete() {}
@@ -129,6 +143,10 @@ impl PbInterface for PbDpHwInterface {
 
     fn is_rx_received(&mut self) -> bool {
         self.rx.is_rx_not_empty()
+    }
+
+    fn is_rx_idle(&mut self) -> bool {
+        self.rx.is_idle()
     }
 
     fn is_tx_done(&mut self) -> bool {
@@ -168,6 +186,22 @@ impl PbInterface for PbDpHwInterface {
 
     fn schedule_receive_handling(&mut self) {
         handle_data_receive::spawn().ok();
+    }
+
+    fn get_baudrate(&self) -> u32 {
+        500_000_u32
+    }
+
+    fn get_timer_frequency(&self) -> u32 {
+        1_000_000_u32
+    }
+
+    fn debug_write(&mut self, _debug: &str) {
+        // self.serial_tx.write(_data).ok();
+        let mut s: String<DEBUG_STRING_SIZE> = String::new();
+        if s.push_str(_debug).is_ok() {
+            save_debug_message::spawn(s).ok();
+        }
     }
 }
 

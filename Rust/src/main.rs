@@ -36,7 +36,7 @@ mod rtc_millis;
 #[rtic::app(device = stm32f1xx_hal::pac, dispatchers = [I2C1_EV], peripherals = true,)]
 mod app {
     use crate::pb_dp_interface::{PbDpDataHandling, PbDpHwInterface};
-    use crate::profibus::{Config as PbDpConfig, PbDpSlave, ReceiveHandling};
+    use crate::profibus::{ConfigOld as PbDpConfig, PbDpSlave, ReceiveHandling};
     use crate::rtc_millis::Rtc;
     use heapless::{
         spsc::{Consumer, Producer, Queue},
@@ -157,9 +157,10 @@ mod app {
         // - USART2: TX = 6, RX = 7
         // - USART3: TX = 2, RX = 3
 
-        let _dma1 = cx.device.DMA1.split();
+        let dma1 = cx.device.DMA1.split();
         let (serial3_tx, serial3_rx) = serial3.split();
         // let serial3_tx_dma = serial3_tx.with_dma(dma1.2);
+        // let &mut serial3_tx = &mut serial3_tx_dma.payload();
         // let serial3_rx_dma = serial3_rx.with_dma(dma1.3);
 
         let mut timer = cx.device.TIM2.counter_us(&clocks);
