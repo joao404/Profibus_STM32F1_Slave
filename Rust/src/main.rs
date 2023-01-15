@@ -167,8 +167,6 @@ mod app {
         timer.listen(Event::Update);
 
         let profibus_config = PbDpConfig::default()
-            .baudrate(500_000_u32)
-            .counter_frequency(1_000_000_u32)
             .ident_high(0x00)
             .ident_low(0x2B)
             .addr(0x0B)

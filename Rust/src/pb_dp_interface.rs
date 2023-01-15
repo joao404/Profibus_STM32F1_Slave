@@ -34,7 +34,7 @@ pub(crate) fn handle_data_receive(cx: handle_data_receive::Context) {
     let mut profibus_slave = cx.shared.profibus_slave;
 
     profibus_slave.lock(|profibus_slave| {
-        profibus_slave.handle_data_receive();
+        profibus_slave.codec.handle_data_receive();
     });
 }
 
@@ -42,7 +42,7 @@ pub(crate) fn usart3_rx(cx: usart3_rx::Context) {
     let mut profibus_slave = cx.shared.profibus_slave;
 
     profibus_slave.lock(|profibus_slave| {
-        profibus_slave.serial_interrupt_handler();
+        profibus_slave.codec.serial_interrupt_handler();
     });
 }
 
@@ -50,7 +50,7 @@ pub(crate) fn timer2_max(cx: timer2_max::Context) {
     let mut profibus_slave = cx.shared.profibus_slave;
 
     profibus_slave.lock(|profibus_slave| {
-        profibus_slave.timer_interrupt_handler();
+        profibus_slave.codec.timer_interrupt_handler();
     });
 }
 

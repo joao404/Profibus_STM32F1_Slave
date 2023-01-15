@@ -1,5 +1,5 @@
 pub use hw_interface::HwInterface;
-pub use fdl::{Config, Fdl, UartAccess, ReceiveHandling};
+pub use codec::{Config, Codec, UartAccess, ReceiveHandling};
 pub use data_handling_interface::DataHandlingInterface;
 pub use slave::{Config as ConfigOld, PbDpSlave};
 pub use types::{
@@ -10,7 +10,7 @@ pub use types::{
 };
 
 pub mod hw_interface;
-pub mod fdl;
+pub mod codec;
 pub mod data_handling_interface;
 pub mod slave;
 mod types;
