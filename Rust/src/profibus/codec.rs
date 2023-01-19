@@ -100,11 +100,9 @@ const BROADCAST_ADD: u8 = 127;
 const DEFAULT_ADD: u8 = 126;
 
 #[allow(dead_code)]
-pub struct Codec<'a, Serial, const BUF_SIZE: usize> {
+pub struct Codec<'a, Serial, DataHandler> {
     config: Config,
     interface: Serial,
-    tx_buffer: [u8; BUF_SIZE],
-    rx_buffer: [u8; BUF_SIZE],
 
     rx_len: usize,
     tx_len: usize,
@@ -118,12 +116,13 @@ pub struct Codec<'a, Serial, const BUF_SIZE: usize> {
 
     timer_timeout_in_us: u32,
 
-    fdl: Option<&'a dyn Fdl>,
+    fdl: Option<&'a DataHandler>,
 }
 
-impl<'a, Serial, const BUF_SIZE: usize> Codec<'a, Serial, BUF_SIZE>
+impl<'a, Serial, DataHandler> Codec<'a, Serial, DataHandler> 
 where
     Serial: HwInterface,
+    DataHandler: Fdl,
 {
     pub fn new(mut interface: Serial, mut config: Config) -> Self {
         let timeout_max_syn_time_in_us =
@@ -155,8 +154,6 @@ where
         Self {
             config,
             interface,
-            tx_buffer: [0; BUF_SIZE],
-            rx_buffer: [0; BUF_SIZE],
             rx_len: 0,
             tx_len: 0,
             tx_pos: 0,
@@ -170,8 +167,7 @@ where
         }
     }
 
-    pub fn set_fdl(&mut self,  fdl: &'a dyn Fdl)
-    {
+    pub fn set_fdl(&mut self, fdl: &'a DataHandler) {
         self.fdl = Some(fdl);
     }
 
@@ -242,9 +238,11 @@ where
                     }
 
                     if StreamState::GetData == self.stream_state {
-                        self.rx_buffer[self.rx_len] = data;
-                        if self.rx_len < self.rx_buffer.len() {
-                            self.rx_len += 1;
+                        if let Some(buf) = self.interface.get_rx_buffer() {
+                            buf[self.rx_len] = data;
+                            if self.rx_len < buf.len() {
+                                self.rx_len += 1;
+                            }
                         }
                     }
                 }
@@ -259,8 +257,11 @@ where
         if self.config.tx_handling == UartAccess::SingleByte {
             if self.tx_pos < self.tx_len {
                 self.interface.clear_tx_flag();
-                self.interface.set_uart_value(self.tx_buffer[self.tx_pos]);
+                if let Some(buf) = self.interface.get_tx_buffer() {
+                let data = buf[self.tx_pos];
+                self.interface.set_uart_value(data);
                 self.tx_pos += 1;
+                }
             } else {
                 self.interface.tx_rs485_disable();
                 // Alles gesendet, Interrupt wieder aus
@@ -305,12 +306,15 @@ where
                 self.interface.tx_rs485_enable();
                 self.interface.clear_tx_flag();
                 if self.config.tx_handling == UartAccess::SingleByte {
-                    self.interface.set_uart_value(self.tx_buffer[self.tx_pos]);
+                    if let Some(buf) = self.interface.get_tx_buffer() {
+                        let data = buf[self.tx_pos];
+                    self.interface.set_uart_value(data);
                     self.interface.activate_tx_interrupt();
                     self.tx_pos += 1;
+                    }
                     self.interface.run_timer(self.timer_timeout_in_us);
                 } else if self.config.tx_handling == UartAccess::Dma {
-                    self.interface.send_uart_data(&self.tx_buffer);
+                    self.interface.send_uart_data(self.tx_len);
                     self.interface.activate_tx_interrupt();
                 }
             }
@@ -330,15 +334,16 @@ where
         function_code: u8,
         sap_offset: bool,
     ) {
-        self.tx_buffer[0] = cmd_type::SD1;
-        self.tx_buffer[1] = destination_addr;
-        self.tx_buffer[2] = self.config.t_s + if sap_offset { SAP_OFFSET } else { 0 };
-        self.tx_buffer[3] = function_code;
-        let checksum = self.calc_checksum(&self.tx_buffer[1..4]);
-        self.tx_buffer[4] = checksum;
-        self.tx_buffer[5] = cmd_type::ED;
+        if let Some(buf) = self.interface.get_tx_buffer() {
+        buf[0] = cmd_type::SD1;
+        buf[1] = destination_addr;
+        buf[2] = self.config.t_s + if sap_offset { SAP_OFFSET } else { 0 };
+        buf[3] = function_code;
+        buf[4] = calc_checksum(&buf[1..4]);
+        buf[5] = cmd_type::ED;
         self.tx_len = 6;
         self.transmit();
+        }
     }
 
     pub fn transmit_message_sd2(
@@ -349,30 +354,32 @@ where
         pdu1: &[u8],
         pdu2: &[u8],
     ) {
-        self.tx_buffer[0] = cmd_type::SD2;
-        self.tx_buffer[1] = 3 + pdu1.len().to_le_bytes()[0] + pdu2.len().to_le_bytes()[0];
-        self.tx_buffer[2] = 3 + pdu1.len().to_le_bytes()[0] + pdu2.len().to_le_bytes()[0];
-        self.tx_buffer[3] = cmd_type::SD2;
-        self.tx_buffer[4] = destination_addr;
-        self.tx_buffer[5] = self.config.t_s + if sap_offset { SAP_OFFSET } else { 0 };
-        self.tx_buffer[6] = function_code;
+        if let Some(buf) = self.interface.get_tx_buffer() {
+        buf[0] = cmd_type::SD2;
+        buf[1] = 3 + pdu1.len().to_le_bytes()[0] + pdu2.len().to_le_bytes()[0];
+        buf[2] = 3 + pdu1.len().to_le_bytes()[0] + pdu2.len().to_le_bytes()[0];
+        buf[3] = cmd_type::SD2;
+        buf[4] = destination_addr;
+        buf[5] = self.config.t_s + if sap_offset { SAP_OFFSET } else { 0 };
+        buf[6] = function_code;
         if pdu1.len() > 0 {
             for i in 0..pdu1.len() {
-                self.tx_buffer[7 + i] = pdu1[i];
+                buf[7 + i] = pdu1[i];
             }
         }
         if pdu2.len() > 0 {
             for i in 0..pdu2.len() {
-                self.tx_buffer[7 + i + pdu1.len()] = pdu2[i];
+                buf[7 + i + pdu1.len()] = pdu2[i];
             }
         }
-        let checksum = self.calc_checksum(&self.tx_buffer[4..7])
-            + self.calc_checksum(pdu1)
-            + self.calc_checksum(pdu2);
-        self.tx_buffer[7 + pdu1.len() + pdu2.len()] = checksum;
-        self.tx_buffer[8 + pdu1.len() + pdu2.len()] = cmd_type::ED;
+        let checksum = calc_checksum(&buf[4..7])
+            + calc_checksum(pdu1)
+            + calc_checksum(pdu2);
+        buf[7 + pdu1.len() + pdu2.len()] = checksum;
+        buf[8 + pdu1.len() + pdu2.len()] = cmd_type::ED;
         self.tx_len = 9 + pdu1.len() + pdu2.len();
         self.transmit();
+    }
     }
 
     #[allow(dead_code)]
@@ -383,33 +390,38 @@ where
         sap_offset: bool,
         pdu: &[u8; 8],
     ) {
-        self.tx_buffer[0] = cmd_type::SD3;
-        self.tx_buffer[1] = destination_addr;
-        self.tx_buffer[2] = self.config.t_s + if sap_offset { SAP_OFFSET } else { 0 };
-        self.tx_buffer[3] = function_code;
+        if let Some(buf) = self.interface.get_tx_buffer() {
+        buf[0] = cmd_type::SD3;
+        buf[1] = destination_addr;
+        buf[2] = self.config.t_s + if sap_offset { SAP_OFFSET } else { 0 };
+        buf[3] = function_code;
         for i in 0..pdu.len() {
-            self.tx_buffer[4 + i] = pdu[i];
+            buf[4 + i] = pdu[i];
         }
-        let checksum = self.calc_checksum(&self.tx_buffer[1..12]);
-        self.tx_buffer[12] = checksum;
-        self.tx_buffer[13] = cmd_type::ED;
+        buf[12] = calc_checksum(&buf[1..12]);
+        buf[13] = cmd_type::ED;
         self.tx_len = 14;
         self.transmit();
+    }
     }
 
     #[allow(dead_code)]
     pub fn transmit_message_sd4(&mut self, destination_addr: u8, sap_offset: bool) {
-        self.tx_buffer[0] = cmd_type::SD4;
-        self.tx_buffer[1] = destination_addr;
-        self.tx_buffer[2] = self.config.t_s + if sap_offset { SAP_OFFSET } else { 0 };
+        if let Some(buf) = self.interface.get_tx_buffer() {
+        buf[0] = cmd_type::SD4;
+        buf[1] = destination_addr;
+        buf[2] = self.config.t_s + if sap_offset { SAP_OFFSET } else { 0 };
         self.tx_len = 3;
         self.transmit();
+        }
     }
 
     pub fn transmit_message_sc(&mut self) {
-        self.tx_buffer[0] = cmd_type::SC;
+        if let Some(buf) = self.interface.get_tx_buffer() {
+        buf[0] = cmd_type::SC;
         self.tx_len = 1;
         self.transmit();
+        }
     }
 
     pub fn transmit(&mut self) {
@@ -430,33 +442,17 @@ where
             self.interface.tx_rs485_enable();
             self.interface.clear_tx_flag();
             if self.config.tx_handling == UartAccess::SingleByte {
-                self.interface.set_uart_value(self.tx_buffer[self.tx_pos]);
+                if let Some(buf) = self.interface.get_tx_buffer() {
+                    let data = buf[self.tx_pos];
+                self.interface.set_uart_value(data);
                 self.interface.activate_tx_interrupt();
                 self.tx_pos += 1;
+                }
                 self.interface.run_timer(self.timer_timeout_in_us);
             } else if self.config.tx_handling == UartAccess::Dma {
-                self.interface.send_uart_data(&self.tx_buffer);
+                self.interface.send_uart_data(self.tx_len);
                 self.interface.activate_tx_interrupt();
             }
-        }
-    }
-
-    fn calc_checksum(&self, data: &[u8]) -> u8 {
-        let mut checksum: u8 = 0;
-        for x in data {
-            checksum += *x;
-        }
-        checksum
-    }
-
-    fn check_destination_addr(&self, destination: u8) -> bool {
-        if ((destination & 0x7F) != self.config.t_s) &&  // Slave
-       ((destination & 0x7F) != BROADCAST_ADD)
-        // Broadcast
-        {
-            false
-        } else {
-            true
         }
     }
 
@@ -469,17 +465,18 @@ where
         let mut function_code: u8 = 0;
         let mut pdu_len: u8 = 0; // PDU Groesse
 
-        match self.rx_buffer[0] {
+        if let Some(buf) = self.interface.get_rx_buffer() {
+        match buf[0] {
             cmd_type::SD1 => {
                 if 6 == self.rx_len {
-                    if cmd_type::ED == self.rx_buffer[5] {
-                        destination_addr = self.rx_buffer[1];
-                        source_addr = self.rx_buffer[2];
-                        function_code = self.rx_buffer[3];
-                        let fcs_data = self.rx_buffer[4]; // Frame Check Sequence
+                    if cmd_type::ED == buf[5] {
+                        destination_addr = buf[1];
+                        source_addr = buf[2];
+                        function_code = buf[3];
+                        let fcs_data = buf[4]; // Frame Check Sequence
 
-                        if self.check_destination_addr(destination_addr) {
-                            if fcs_data == self.calc_checksum(&self.rx_buffer[1..4]) {
+                        if check_destination_addr(self.config.t_s, destination_addr) {
+                            if fcs_data == calc_checksum(&buf[1..4]) {
                                 // FCV und FCB loeschen, da vorher überprüft
                                 function_code &= 0xCF;
                                 if let Some(fdl) = self.fdl {
@@ -498,17 +495,17 @@ where
 
             cmd_type::SD2 => {
                 if self.rx_len > 4 {
-                    if self.rx_len == usize::from(self.rx_buffer[1] + 6) {
-                        if cmd_type::ED == self.rx_buffer[self.rx_len - 1] {
-                            pdu_len = self.rx_buffer[1]; // DA+SA+FC+Nutzdaten
-                            destination_addr = self.rx_buffer[4];
-                            source_addr = self.rx_buffer[5];
-                            function_code = self.rx_buffer[6];
-                            let fcs_data = self.rx_buffer[usize::from(pdu_len + 4)]; // Frame Check Sequence
-                            if self.check_destination_addr(destination_addr) {
+                    if self.rx_len == usize::from(buf[1] + 6) {
+                        if cmd_type::ED == buf[self.rx_len - 1] {
+                            pdu_len = buf[1]; // DA+SA+FC+Nutzdaten
+                            destination_addr = buf[4];
+                            source_addr = buf[5];
+                            function_code = buf[6];
+                            let fcs_data = buf[usize::from(pdu_len + 4)]; // Frame Check Sequence
+                            if check_destination_addr(self.config.t_s, destination_addr) {
                                 if fcs_data
-                                    == self.calc_checksum(
-                                        &self.rx_buffer[4..usize::from(self.rx_len - 2)],
+                                    == calc_checksum(
+                                        &buf[4..usize::from(self.rx_len - 2)],
                                     )
                                 {
                                     // FCV und FCB loeschen, da vorher überprüft
@@ -518,7 +515,7 @@ where
                                             source_addr,
                                             destination_addr,
                                             function_code,
-                                            &self.rx_buffer[7..usize::from(self.rx_len - 2)],
+                                            &buf[7..usize::from(self.rx_len - 2)],
                                         );
                                     }
                                 }
@@ -530,15 +527,15 @@ where
 
             cmd_type::SD3 => {
                 if 14 == self.rx_len {
-                    if cmd_type::ED == self.rx_buffer[13] {
+                    if cmd_type::ED == buf[13] {
                         pdu_len = 11; // DA+SA+FC+Nutzdaten
-                        destination_addr = self.rx_buffer[1];
-                        source_addr = self.rx_buffer[2];
-                        function_code = self.rx_buffer[3];
-                        let fcs_data = self.rx_buffer[12]; // Frame Check Sequence
+                        destination_addr = buf[1];
+                        source_addr = buf[2];
+                        function_code = buf[3];
+                        let fcs_data = buf[12]; // Frame Check Sequence
 
-                        if self.check_destination_addr(destination_addr) {
-                            if fcs_data == self.calc_checksum(&self.rx_buffer[1..12]) {
+                        if check_destination_addr(self.config.t_s, destination_addr) {
+                            if fcs_data == calc_checksum(&buf[1..12]) {
                                 // FCV und FCB loeschen, da vorher überprüft
                                 function_code &= 0xCF;
                                 if let Some(fdl) = self.fdl {
@@ -546,7 +543,7 @@ where
                                         source_addr,
                                         destination_addr,
                                         function_code,
-                                        &self.rx_buffer[4..12],
+                                        &buf[4..12],
                                     );
                                 }
                             }
@@ -557,10 +554,10 @@ where
 
             cmd_type::SD4 => {
                 if 3 == self.rx_len {
-                    destination_addr = self.rx_buffer[1];
-                    source_addr = self.rx_buffer[2];
+                    destination_addr = buf[1];
+                    source_addr = buf[2];
 
-                    if self.check_destination_addr(destination_addr) {
+                    if check_destination_addr(self.config.t_s, destination_addr) {
                         //TODO
                     }
                 }
@@ -568,6 +565,7 @@ where
 
             _ => (),
         } // match self.buffer[0]
+    }
         if !response {
             self.reset_data_stream();
         }
@@ -577,10 +575,29 @@ where
 
 pub trait Fdl {
     fn handle_data_receive(
-        &mut self,
+        &self,
         source_addr: u8,
         destination_addr: u8,
         function_code: u8,
         pdu: &[u8],
     ) -> bool;
+}
+
+fn calc_checksum(data: &[u8]) -> u8 {
+    let mut checksum: u8 = 0;
+    for x in data {
+        checksum += *x;
+    }
+    checksum
+}
+
+fn check_destination_addr(address: u8, destination: u8) -> bool {
+    if ((destination & 0x7F) != address) &&  // Slave
+   ((destination & 0x7F) != BROADCAST_ADD)
+    // Broadcast
+    {
+        false
+    } else {
+        true
+    }
 }

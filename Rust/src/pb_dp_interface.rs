@@ -17,7 +17,7 @@
 use crate::app::{
     handle_data_receive, save_debug_message, timer2_max, usart3_rx, DEBUG_STRING_SIZE,
 };
-use crate::profibus::{DataHandlingInterface as PbDataHandling, HwInterface as PbInterface};
+use crate::profibus::{DataHandlingInterface as PbDataHandling, HwInterface as PbInterface, Codec};
 use crate::rtc_millis::Rtc;
 use heapless::String;
 use rtic::mutex_prelude::*;
@@ -31,30 +31,30 @@ use stm32f1xx_hal::{
 };
 
 pub(crate) fn handle_data_receive(cx: handle_data_receive::Context) {
-    let mut profibus_slave = cx.shared.profibus_slave;
+    let mut profibus_codec = cx.shared.profibus_codec;
 
-    profibus_slave.lock(|profibus_slave| {
-        profibus_slave.codec.handle_data_receive();
+    profibus_codec.lock(|profibus_codec| {
+        profibus_codec.handle_data_receive();
     });
 }
 
 pub(crate) fn usart3_rx(cx: usart3_rx::Context) {
-    let mut profibus_slave = cx.shared.profibus_slave;
+    let mut profibus_codec = cx.shared.profibus_codec;
 
-    profibus_slave.lock(|profibus_slave| {
-        profibus_slave.codec.serial_interrupt_handler();
+    profibus_codec.lock(|profibus_codec| {
+        profibus_codec.serial_interrupt_handler();
     });
 }
 
 pub(crate) fn timer2_max(cx: timer2_max::Context) {
-    let mut profibus_slave = cx.shared.profibus_slave;
+    let mut profibus_codec = cx.shared.profibus_codec;
 
-    profibus_slave.lock(|profibus_slave| {
-        profibus_slave.codec.timer_interrupt_handler();
+    profibus_codec.lock(|profibus_codec| {
+        profibus_codec.timer_interrupt_handler();
     });
 }
 
-pub struct PbDpHwInterface {
+pub struct PbDpHwInterface<const BUF_SIZE: usize> {
     tx: serialTx<USART3>,
     rx: serialRx<USART3>,
     // tx_dma: TxDma<serialTx<USART3>, C2>,
@@ -62,9 +62,11 @@ pub struct PbDpHwInterface {
     tx_en: gpiob::PB1<Output<PushPull>>,
     rx_en: gpiob::PB0<Output<PushPull>>,
     timer_handler: CounterUs<TIM2>,
+    tx_buffer: [u8; BUF_SIZE],
+    rx_buffer: [u8; BUF_SIZE],
 }
 
-impl PbDpHwInterface {
+impl<const BUF_SIZE: usize> PbDpHwInterface<BUF_SIZE> {
     pub fn new(
         tx: serialTx<USART3>,
         rx: serialRx<USART3>,
@@ -82,11 +84,13 @@ impl PbDpHwInterface {
             tx_en,
             rx_en,
             timer_handler,
+            tx_buffer: [0; BUF_SIZE],
+            rx_buffer: [0; BUF_SIZE],
         }
     }
 }
 
-impl PbInterface for PbDpHwInterface {
+impl<const BUF_SIZE: usize> PbInterface for PbDpHwInterface<BUF_SIZE> {
     fn config_timer(&mut self) {}
 
     fn run_timer(&mut self, _timeout_in_us: u32) {
@@ -186,6 +190,14 @@ impl PbInterface for PbDpHwInterface {
 
     fn schedule_receive_handling(&mut self) {
         handle_data_receive::spawn().ok();
+    }
+
+    fn get_rx_buffer(&mut self) -> Option<&mut [u8]> {
+        Some(&mut self.rx_buffer[..])
+    }
+
+    fn get_tx_buffer(&mut self) -> Option<&mut [u8]> {
+        Some(&mut self.tx_buffer[..])
     }
 
     fn get_baudrate(&self) -> u32 {
