@@ -31,26 +31,26 @@ use stm32f1xx_hal::{
 };
 
 pub(crate) fn handle_data_receive(cx: handle_data_receive::Context) {
-    let mut profibus_codec = cx.shared.profibus_codec;
+    let mut profibus_fdl = cx.shared.profibus_fdl;
 
-    profibus_codec.lock(|profibus_codec| {
-        profibus_codec.handle_data_receive();
+    profibus_fdl.lock(|profibus_fdl| {
+        profibus_fdl.codec.handle_data_receive();
     });
 }
 
 pub(crate) fn usart3_rx(cx: usart3_rx::Context) {
-    let mut profibus_codec = cx.shared.profibus_codec;
+    let mut profibus_fdl = cx.shared.profibus_fdl;
 
-    profibus_codec.lock(|profibus_codec| {
-        profibus_codec.serial_interrupt_handler();
+    profibus_fdl.lock(|profibus_fdl| {
+        profibus_fdl.codec.serial_interrupt_handler();
     });
 }
 
 pub(crate) fn timer2_max(cx: timer2_max::Context) {
-    let mut profibus_codec = cx.shared.profibus_codec;
+    let mut profibus_fdl = cx.shared.profibus_fdl;
 
-    profibus_codec.lock(|profibus_codec| {
-        profibus_codec.timer_interrupt_handler();
+    profibus_fdl.lock(|profibus_fdl| {
+        profibus_fdl.codec.timer_interrupt_handler();
     });
 }
 
@@ -218,13 +218,14 @@ impl<const BUF_SIZE: usize> PbInterface for PbDpHwInterface<BUF_SIZE> {
 }
 
 pub struct PbDpDataHandling {
-    rtc: Rtc,
+    // rtc: Rtc,
     debug_pin: gpioa::PA7<Output<PushPull>>,
 }
 
 impl PbDpDataHandling {
     pub fn new(rtc: Rtc, debug_pin: gpioa::PA7<Output<PushPull>>) -> Self {
-        PbDpDataHandling { rtc, debug_pin }
+        // PbDpDataHandling { rtc, debug_pin }
+        PbDpDataHandling { debug_pin }
     }
 }
 
@@ -242,7 +243,8 @@ impl PbDataHandling for PbDpDataHandling {
     }
 
     fn millis(&mut self) -> u32 {
-        self.rtc.current_time()
+        // self.rtc.current_time()
+        0
     }
     fn data_processing(&self, _input: &mut [u8], _output: &[u8]) {
         if (_output.len() > 0) && (_input.len() > 0) {

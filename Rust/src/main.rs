@@ -36,7 +36,7 @@ mod rtc_millis;
 #[rtic::app(device = stm32f1xx_hal::pac, dispatchers = [I2C1_EV], peripherals = true,)]
 mod app {
     use crate::pb_dp_interface::{PbDpDataHandling, PbDpHwInterface};
-    use crate::profibus::{ConfigOld as PbDpConfig, PbDpSlave, ReceiveHandling, Codec, CodecConfig, Fdl};
+    use crate::profibus::{ConfigOld as PbDpConfig, PbDpSlave, ReceiveHandling, CodecConfig, Fdl};
     use crate::rtc_millis::Rtc;
     use heapless::{
         spsc::{Consumer, Producer, Queue},
@@ -76,8 +76,8 @@ mod app {
         led: gpioc::PC13<Output<PushPull>>,
     }
 
-    type SerialHwInterface = PbDpHwInterface<PROFIBUS_BUF_SIZE>;
-    type ProfibusCodec = Codec<'static, SerialHwInterface, Fdl>;
+    // type SerialHwInterface = PbDpHwInterface<PROFIBUS_BUF_SIZE>;
+    // type ProfibusCodec = Codec<'static, SerialHwInterface, dyn FdlTrait>;
 
     #[shared]
     struct Shared {
@@ -97,8 +97,7 @@ mod app {
         // USER_PARA_SIZE,
         // EXTERN_DIAG_PARA_SIZE,
         // VENDOR_DATA_SIZE,>>,
-        profibus_fdl: Fdl,
-        profibus_codec : ProfibusCodec,
+        profibus_fdl: Fdl<'static,  PbDpHwInterface<PROFIBUS_BUF_SIZE>>,
     }
 
     #[init(local = [debug_queue: Queue<u8, DEBUG_QUEUE_SIZE> = Queue::new()])]
@@ -208,13 +207,16 @@ mod app {
 
         let profibus_slave = PbDpSlave::new();
 
-        let profibus_fdl = Fdl::new();
+        
 
         let serial_config = CodecConfig::default()
         .t_s(0x0B)
         .receive_handling(ReceiveHandling::Thread);
 
-        let profibus_codec = Codec::new(serial_interface, serial_config);
+
+        let profibus_fdl: Fdl<PbDpHwInterface<PROFIBUS_BUF_SIZE>> = Fdl::new(serial_config, serial_interface);//, data_interface);
+
+        // let profibus_codec = Codec::new(serial_interface, serial_config);
 
         blinky::spawn().unwrap();
 
@@ -222,7 +224,6 @@ mod app {
             Shared {
                 debug_producer,
                 profibus_fdl,
-                profibus_codec,
             },
             Local {
                 serial1_rx,
@@ -286,13 +287,13 @@ mod app {
     use crate::pb_dp_interface::{handle_data_receive, timer2_max, usart3_rx};
 
     extern "Rust" {
-        #[task(priority = 1, shared = [profibus_codec])]
+        #[task(priority = 1, shared = [profibus_fdl])]
         fn handle_data_receive(cx: handle_data_receive::Context);
 
-        #[task(binds = USART3, priority = 2, shared = [profibus_codec])]
+        #[task(binds = USART3, priority = 2, shared = [profibus_fdl])]
         fn usart3_rx(cx: usart3_rx::Context);
 
-        #[task(binds = TIM2, priority = 2, shared = [profibus_codec])]
+        #[task(binds = TIM2, priority = 2, shared = [profibus_fdl])]
         fn timer2_max(cx: timer2_max::Context);
     }
 }

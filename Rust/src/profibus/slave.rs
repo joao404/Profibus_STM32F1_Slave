@@ -8,6 +8,10 @@ use super::types::{
     DpSlaveState, StreamState,
 };
 
+// This class shall implement all traits for fdl and codec and combine them
+// it also provides the getter for codec to get parameters like addr etc. as inline code
+// only this class is template with given parameters
+
 pub struct Config {
     ident_high: u8,
     ident_low: u8,

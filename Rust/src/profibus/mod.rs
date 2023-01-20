@@ -1,5 +1,5 @@
 pub use hw_interface::HwInterface;
-pub use codec::{Config as CodecConfig, Codec, UartAccess, ReceiveHandling};
+pub use codec::{Config as CodecConfig, Codec, UartAccess, ReceiveHandling, Fdl as FdlTrait};
 pub use fdl::Fdl;
 pub use data_handling_interface::DataHandlingInterface;
 pub use slave::{Config as ConfigOld, PbDpSlave};

@@ -14,26 +14,42 @@
  * LICENSE file for more details.
  */
 
- use super::codec::{Codec, Config, Fdl as FdlTrait, ReceiveHandling, UartAccess};
- use super::data_handling_interface::DataHandlingInterface;
- use super::hw_interface::HwInterface;
+use super::codec::{Codec, Config, Fdl as FdlTrait, ReceiveHandling, UartAccess};
+use super::data_handling_interface::DataHandlingInterface;
+use super::hw_interface::HwInterface;
 
 #[allow(dead_code)]
-pub struct Fdl<
-> {
+pub struct Fdl<'a, CodecInterface> {
+    pub codec: Codec<'a, CodecInterface, Fdl<'a, CodecInterface>>,
+    // pub data_handling_interface: DataHandling,
 }
 
-impl Fdl
+impl<'a, CodecInterface> Fdl<'a, CodecInterface>
+where
+    CodecInterface: HwInterface,
+    // DataHandling: DataHandlingInterface,
 {
-    pub fn new()-> Self {
-        Self{}
+    pub fn new(
+        mut config: Config,
+        codec_interface: CodecInterface,
+        // data_handling_interface: DataHandling,
+    ) -> Self {
+        let mut instance = Self {
+            codec: Codec::new(codec_interface, config),
+            // data_handling_interface,
+        };
+        instance.codec.set_fdl(&instance);
+        instance
     }
 }
 
-impl FdlTrait for Fdl
+impl<'a, CodecInterface> FdlTrait for Fdl<'a, CodecInterface>
+where
+    CodecInterface: HwInterface,
+    // DataHandling: DataHandlingInterface,
 {
     fn handle_data_receive(
-        & self,
+        &self,
         source_addr: u8,
         destination_addr: u8,
         function_code: u8,
