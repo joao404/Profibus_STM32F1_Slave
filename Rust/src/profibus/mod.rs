@@ -1,6 +1,6 @@
 pub use hw_interface::HwInterface;
-pub use codec::{Config as CodecConfig, Codec, UartAccess, ReceiveHandling, Fdl as FdlTrait};
-pub use fdl::Fdl;
+pub use codec::{Config as CodecConfig, Codec, UartAccess, ReceiveHandling};
+// pub use fdl::Fdl;
 pub use data_handling_interface::DataHandlingInterface;
 pub use slave::{Config as ConfigOld, PbDpSlave};
 pub use types::{
@@ -12,7 +12,7 @@ pub use types::{
 
 pub mod hw_interface;
 pub mod codec;
-pub mod fdl;
+// pub mod fdl;
 pub mod data_handling_interface;
 pub mod slave;
 mod types;

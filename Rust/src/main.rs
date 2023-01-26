@@ -36,7 +36,7 @@ mod rtc_millis;
 #[rtic::app(device = stm32f1xx_hal::pac, dispatchers = [I2C1_EV], peripherals = true,)]
 mod app {
     use crate::pb_dp_interface::{PbDpDataHandling, PbDpHwInterface};
-    use crate::profibus::{ConfigOld as PbDpConfig, PbDpSlave, ReceiveHandling, CodecConfig, Fdl};
+    use crate::profibus::{ConfigOld as PbDpConfig, PbDpSlave, ReceiveHandling, CodecConfig};
     use crate::rtc_millis::Rtc;
     use heapless::{
         spsc::{Consumer, Producer, Queue},
@@ -82,22 +82,22 @@ mod app {
     #[shared]
     struct Shared {
         debug_producer: Producer<'static, u8, DEBUG_QUEUE_SIZE>,
-        // profibus_slave: PbDpSlave<
-        //     // PbDpHwInterface<PROFIBUS_BUF_SIZE>,
-        //     PbDpDataHandling,
-        //     INPUT_DATA_SIZE,
-        //     OUTPUT_DATA_SIZE,
-        //     USER_PARA_SIZE,
-        //     EXTERN_DIAG_PARA_SIZE,
-        //     VENDOR_DATA_SIZE,
-        // >,
+        profibus_slave: PbDpSlave<
+            PbDpHwInterface<PROFIBUS_BUF_SIZE>,
+            PbDpDataHandling,
+            INPUT_DATA_SIZE,
+            OUTPUT_DATA_SIZE,
+            USER_PARA_SIZE,
+            EXTERN_DIAG_PARA_SIZE,
+            VENDOR_DATA_SIZE,
+        >,
         // profibus_codec : Codec<'static, PbDpHwInterface<PROFIBUS_BUF_SIZE>, PbDpSlave<PbDpDataHandling,
         // INPUT_DATA_SIZE,
         // OUTPUT_DATA_SIZE,
         // USER_PARA_SIZE,
         // EXTERN_DIAG_PARA_SIZE,
         // VENDOR_DATA_SIZE,>>,
-        profibus_fdl: Fdl<'static,  PbDpHwInterface<PROFIBUS_BUF_SIZE>>,
+        // profibus_fdl: Fdl<'static,  PbDpHwInterface<PROFIBUS_BUF_SIZE>>,
     }
 
     #[init(local = [debug_queue: Queue<u8, DEBUG_QUEUE_SIZE> = Queue::new()])]
@@ -198,23 +198,19 @@ mod app {
 
         let data_interface = PbDpDataHandling::new(rtc, debug_pin);
 
-        // let profibus_slave = PbDpSlave::new(
-        //     // serial_interface,
-        //     data_interface,
-        //     profibus_config,
-        //     [0x22, 0x20, 0x20, 0x10, 0x10],
-        // );
+        let profibus_slave = PbDpSlave::new(
+            serial_interface,
+            data_interface,
+            profibus_config,
+            [0x22, 0x20, 0x20, 0x10, 0x10],
+        );
 
-        let profibus_slave = PbDpSlave::new();
-
-        
-
-        let serial_config = CodecConfig::default()
-        .t_s(0x0B)
-        .receive_handling(ReceiveHandling::Thread);
+        // let serial_config = CodecConfig::default()
+        // .t_s(0x0B)
+        // .receive_handling(ReceiveHandling::Thread);
 
 
-        let profibus_fdl: Fdl<PbDpHwInterface<PROFIBUS_BUF_SIZE>> = Fdl::new(serial_config, serial_interface);//, data_interface);
+        // let profibus_fdl: Fdl<PbDpHwInterface<PROFIBUS_BUF_SIZE>> = Fdl::new(serial_config, serial_interface);//, data_interface);
 
         // let profibus_codec = Codec::new(serial_interface, serial_config);
 
@@ -223,7 +219,7 @@ mod app {
         (
             Shared {
                 debug_producer,
-                profibus_fdl,
+                profibus_slave,
             },
             Local {
                 serial1_rx,
@@ -256,7 +252,7 @@ mod app {
         }
     }
 
-    #[task(priority = 1, shared = [profibus_fdl], local = [led])]
+    #[task(priority = 1, shared = [profibus_slave], local = [led])]
     fn blinky(cx: blinky::Context) {
         cx.local.led.toggle();
         // let mut profibus_slave = cx.shared.profibus_slave;
@@ -287,13 +283,13 @@ mod app {
     use crate::pb_dp_interface::{handle_data_receive, timer2_max, usart3_rx};
 
     extern "Rust" {
-        #[task(priority = 1, shared = [profibus_fdl])]
+        #[task(priority = 1, shared = [profibus_slave])]
         fn handle_data_receive(cx: handle_data_receive::Context);
 
-        #[task(binds = USART3, priority = 2, shared = [profibus_fdl])]
+        #[task(binds = USART3, priority = 2, shared = [profibus_slave])]
         fn usart3_rx(cx: usart3_rx::Context);
 
-        #[task(binds = TIM2, priority = 2, shared = [profibus_fdl])]
+        #[task(binds = TIM2, priority = 2, shared = [profibus_slave])]
         fn timer2_max(cx: timer2_max::Context);
     }
 }

@@ -1,4 +1,4 @@
-use super::codec::{Codec, Config as CodecConfig, Fdl, ReceiveHandling, UartAccess};
+use super::codec::{Codec, Config as CodecConfig, ReceiveHandling, UartAccess, CodecVariables};
 use super::data_handling_interface::DataHandlingInterface;
 use super::hw_interface::HwInterface;
 
@@ -78,137 +78,353 @@ const BROADCAST_ADD: u8 = 127;
 const DEFAULT_ADD: u8 = 126;
 const MASTER_ADD_DEFAULT: u8 = 0xFF;
 
-// #[allow(dead_code)]
-// pub struct PbDpSlave<
-//     // 'a,
-//     // Serial,
-//     DataHandling,
-//     // const BUF_SIZE: usize,
-//     const INPUT_DATA_SIZE: usize,
-//     const OUTPUT_DATA_SIZE: usize,
-//     const USER_PARA_SIZE: usize,
-//     const EXTERN_DIAG_PARA_SIZE: usize,
-//     const MODULE_CONFIG_SIZE: usize,
-// > {
-//     config: Config,
-//     //pub codec: Codec<'a, Serial, BUF_SIZE>,
-//     data_handling_interface: DataHandling,
+#[allow(dead_code)]
+pub struct PbDpSlave<
+    // 'a,
+    Serial,
+    DataHandling,
+    const INPUT_DATA_SIZE: usize,
+    const OUTPUT_DATA_SIZE: usize,
+    const USER_PARA_SIZE: usize,
+    const EXTERN_DIAG_PARA_SIZE: usize,
+    const MODULE_CONFIG_SIZE: usize,
+> {
+    config: Config,
+    data_handling_interface: DataHandling,
 
-//     slave_state: DpSlaveState,
-//     input_data: [u8; INPUT_DATA_SIZE],
-//     input_data_buffer: [u8; INPUT_DATA_SIZE],
-//     output_data: [u8; OUTPUT_DATA_SIZE],
-//     output_data_buffer: [u8; OUTPUT_DATA_SIZE],
-//     user_para: [u8; USER_PARA_SIZE],
-//     extern_diag_para: [u8; EXTERN_DIAG_PARA_SIZE],
-//     module_config: [u8; MODULE_CONFIG_SIZE],
+    
+    codec_interface: Serial,
+    codec_variables : CodecVariables,
 
-//     diagnose_status_1: u8,
-//     master_addr: u8,
-//     group: u8,
+    slave_state: DpSlaveState,
+    input_data: [u8; INPUT_DATA_SIZE],
+    input_data_buffer: [u8; INPUT_DATA_SIZE],
+    output_data: [u8; OUTPUT_DATA_SIZE],
+    output_data_buffer: [u8; OUTPUT_DATA_SIZE],
+    user_para: [u8; USER_PARA_SIZE],
+    extern_diag_para: [u8; EXTERN_DIAG_PARA_SIZE],
+    module_config: [u8; MODULE_CONFIG_SIZE],
 
+    diagnose_status_1: u8,
+    master_addr: u8,
+    group: u8,
+
+    source_addr: u8,
+    fcv_activated: bool,
+    fcb_last: bool,
+
+    freeze: bool,
+    sync: bool,
+    watchdog_act: bool,
+    min_tsdr: u8,
+
+    freeze_configured: bool,
+    sync_configured: bool,
+
+    last_connection_time: u32,
+    watchdog_time: u32,
+}
+
+impl<
+        // 'a,
+        Serial,
+        DataHandling,
+        const INPUT_DATA_SIZE: usize,
+        const OUTPUT_DATA_SIZE: usize,
+        const USER_PARA_SIZE: usize,
+        const EXTERN_DIAG_PARA_SIZE: usize,
+        const MODULE_CONFIG_SIZE: usize,
+    >
+    PbDpSlave<
+        // 'a,
+        Serial,
+        DataHandling,
+        INPUT_DATA_SIZE,
+        OUTPUT_DATA_SIZE,
+        USER_PARA_SIZE,
+        EXTERN_DIAG_PARA_SIZE,
+        MODULE_CONFIG_SIZE,
+    >
+where
+    Serial: HwInterface,
+    DataHandling: DataHandlingInterface,
+{
+    pub fn new(
+        mut serial_interface: Serial,
+        mut data_handling_interface: DataHandling,
+        mut config: Config,
+        module_config: [u8; MODULE_CONFIG_SIZE],
+    ) -> Self {
+
+        let input_data = [0; INPUT_DATA_SIZE];
+        let input_data_buffer = [0; INPUT_DATA_SIZE];
+        let output_data = [0; OUTPUT_DATA_SIZE];
+        let output_data_buffer = [0; OUTPUT_DATA_SIZE];
+        let user_para = [0; USER_PARA_SIZE];
+        let extern_diag_para = [0; EXTERN_DIAG_PARA_SIZE];
+        // LED Status
+        data_handling_interface.config_error_led();
+
+        let current_time = data_handling_interface.millis();
+
+        data_handling_interface.debug_write("Profi");
+
+        let mut instance = Self {
+            config,
+            data_handling_interface,
+
+            codec_interface:serial_interface,
+            codec_variables : CodecVariables::default(),//TODo
+
+            slave_state: DpSlaveState::Por,
+            input_data,
+            input_data_buffer,
+            output_data,
+            output_data_buffer,
+            user_para,
+            extern_diag_para,
+            module_config,
+            diagnose_status_1: sap_diagnose_byte1::STATION_NOT_READY,
+            master_addr: 0xFF,
+            group: 0,
+            source_addr: 0xFF,
+            fcv_activated: false,
+            fcb_last: false,
+            freeze: false,
+            sync: false,
+            watchdog_act: false,
+            min_tsdr: 0,
+            freeze_configured: false,
+            sync_configured: false,
+            last_connection_time: current_time,
+            watchdog_time: 0xFFFFFF,
+        };
+        //TODO
+        instance.codec_config(&mut instance.config.codec_config);
+        instance
+    }
+
+    pub fn access_output(&mut self) -> &mut [u8; OUTPUT_DATA_SIZE] {
+        &mut self.output_data
+    }
+
+    pub fn access_input(&mut self) -> &mut [u8; INPUT_DATA_SIZE] {
+        &mut self.input_data
+    }
+}
+
+impl<
+        Serial,
+        DataHandling,
+        const INPUT_DATA_SIZE: usize,
+        const OUTPUT_DATA_SIZE: usize,
+        const USER_PARA_SIZE: usize,
+        const EXTERN_DIAG_PARA_SIZE: usize,
+        const MODULE_CONFIG_SIZE: usize,
+    > Codec
+    for PbDpSlave<
+        Serial,
+        DataHandling,
+        INPUT_DATA_SIZE,
+        OUTPUT_DATA_SIZE,
+        USER_PARA_SIZE,
+        EXTERN_DIAG_PARA_SIZE,
+        MODULE_CONFIG_SIZE,
+    >
+where
+    Serial: HwInterface,
+    DataHandling: DataHandlingInterface,
+{
+    fn fdl_handle_data(
+        &mut self,
+        source_addr: u8,
+        destination_addr: u8,
+        function_code: u8,
+        pdu: &[u8],
+    ) -> bool
+    {
+        false
+    }
+
+    fn access_codec_variables(&mut self)->&mut CodecVariables
+    {
+        &mut self.codec_variables
+    }
+
+    fn config_timer(&mut self)
+    {
+       self.codec_interface.config_timer(); 
+    }
+
+    fn run_timer(&mut self, _timeout_in_us: u32)
+    {
+        self.codec_interface.run_timer(_timeout_in_us);
+    }
+
+    fn stop_timer(&mut self)
+    {
+        self.codec_interface.stop_timer();
+    }
+
+    fn clear_overflow_flag(&mut self)
+    {
+        self.codec_interface.clear_overflow_flag();
+    }
+
+    fn config_uart(&mut self)
+    {
+        self.codec_interface.config_uart();
+    }
+
+    fn activate_tx_interrupt(&mut self)
+    {
+        self.codec_interface.activate_tx_interrupt();
+    }
+
+    fn deactivate_tx_interrupt(&mut self)
+    {
+        self.codec_interface.deactivate_tx_interrupt();
+    }
+
+    fn activate_rx_interrupt(&mut self)
+    {
+        self.codec_interface.activate_rx_interrupt();
+    }
+
+    fn deactivate_rx_interrupt(&mut self)
+    {
+        self.codec_interface.deactivate_rx_interrupt();
+    }
+
+    fn activate_idle_interrupt(&mut self)
+    {
+        self.codec_interface.activate_idle_interrupt();
+    }
+
+    fn deactivate_idle_interrupt(&mut self)
+    {
+        self.codec_interface.deactivate_idle_interrupt();
+    }
+
+    fn set_tx_flag(&mut self)
+    {
+        self.codec_interface.set_tx_flag();
+    }
+
+    fn clear_tx_flag(&mut self)
+    {
+        self.codec_interface.clear_tx_flag();
+    }
+
+    fn clear_rx_flag(&mut self)
+    {
+        self.codec_interface.clear_rx_flag();
+    }
+
+    fn clear_idle_flag(&mut self)
+    {
+        self.codec_interface.clear_idle_flag();
+    }
+
+    fn wait_for_activ_transmission(&mut self)
+    {
+        self.codec_interface.wait_for_activ_transmission();
+    }
+
+    fn is_rx_received(&mut self) -> bool
+    {
+        self.codec_interface.is_rx_received()
+    }
+
+    fn is_rx_idle(&mut self) -> bool
+    {
+        self.codec_interface.is_rx_idle()
+    }
+
+    fn is_tx_done(&mut self) -> bool
+    {
+        self.codec_interface.is_tx_done()
+    }
+
+    fn tx_rs485_enable(&mut self)
+    {
+        self.codec_interface.tx_rs485_enable();
+    }
+
+    fn tx_rs485_disable(&mut self)
+    {
+        self.codec_interface.tx_rs485_disable();
+    }
+
+    fn rx_rs485_enable(&mut self)
+    {
+        self.codec_interface.rx_rs485_enable();
+    }
+
+    fn config_rs485_pin(&mut self)
+    {
+        self.codec_interface.config_rs485_pin();
+    }
+
+    fn get_uart_value(&mut self) -> Option<u8>
+    {
+        self.codec_interface.get_uart_value()
+    }
+
+    fn set_uart_value(&mut self, _value: u8)
+    {
+        self.codec_interface.set_uart_value(_value);
+    }
+
+    fn send_uart_data(&mut self, _len: usize)
+    {
+        self.codec_interface.send_uart_data(_len);
+    }
+
+    fn get_uart_data(&mut self) -> usize
+    {
+        self.codec_interface.get_uart_data()
+    }
+
+    fn schedule_receive_handling(&mut self)
+    {
+        self.codec_interface.schedule_receive_handling();
+    }
+
+    fn get_rx_buffer(&mut self) -> &mut [u8]
+    {
+        self.codec_interface.get_rx_buffer()
+    }
+
+    fn get_tx_buffer(&mut self) -> &mut [u8]
+    {
+        self.codec_interface.get_tx_buffer()
+    }
+
+    fn get_timer_frequency(&self) -> u32
+    {
+        self.codec_interface.get_timer_frequency()
+    }
+    
+    fn get_baudrate(&self) -> u32 {
+        self.codec_interface.get_baudrate()
+    }
+
+    fn debug_write(&mut self, _debug: &str)
+    {
+        self.codec_interface.debug_write(_debug);
+    }
+}
+
+// pub(crate) fn fdl_handle_data(
 //     source_addr: u8,
-//     fcv_activated: bool,
-//     fcb_last: bool,
-
-//     freeze: bool,
-//     sync: bool,
-//     watchdog_act: bool,
-//     min_tsdr: u8,
-
-//     freeze_configured: bool,
-//     sync_configured: bool,
-
-//     last_connection_time: u32,
-//     watchdog_time: u32,
-// }
-
-// impl<
-//         // 'a,
-//         // Serial,
-//         DataHandling,
-//         // const BUF_SIZE: usize,
-//         const INPUT_DATA_SIZE: usize,
-//         const OUTPUT_DATA_SIZE: usize,
-//         const USER_PARA_SIZE: usize,
-//         const EXTERN_DIAG_PARA_SIZE: usize,
-//         const MODULE_CONFIG_SIZE: usize,
-//     >
-//     PbDpSlave<
-//         // 'a,
-//         // Serial,
-//         DataHandling,
-//         // BUF_SIZE,
-//         INPUT_DATA_SIZE,
-//         OUTPUT_DATA_SIZE,
-//         USER_PARA_SIZE,
-//         EXTERN_DIAG_PARA_SIZE,
-//         MODULE_CONFIG_SIZE,
-//     >
-// where
-//     // Serial: HwInterface,
-//     DataHandling: DataHandlingInterface,
+//     destination_addr: u8,
+//     function_code: u8,
+//     pdu: &[u8],
+// ) -> bool
 // {
-//     pub fn new(
-//         // mut serial_interface: Serial,
-//         mut data_handling_interface: DataHandling,
-//         mut config: Config,
-//         module_config: [u8; MODULE_CONFIG_SIZE],
-//     ) -> Self {
-//         // let codec: Codec<Serial, BUF_SIZE> =
-//         //     Codec::new(serial_interface, config.codec_config.clone());
-
-//         let input_data = [0; INPUT_DATA_SIZE];
-//         let input_data_buffer = [0; INPUT_DATA_SIZE];
-//         let output_data = [0; OUTPUT_DATA_SIZE];
-//         let output_data_buffer = [0; OUTPUT_DATA_SIZE];
-//         let user_para = [0; USER_PARA_SIZE];
-//         let extern_diag_para = [0; EXTERN_DIAG_PARA_SIZE];
-//         // LED Status
-//         data_handling_interface.config_error_led();
-
-//         let current_time = data_handling_interface.millis();
-
-//         data_handling_interface.debug_write("Profi");
-
-//         let instance = Self {
-//             config,
-//             //codec,
-//             data_handling_interface,
-//             slave_state: DpSlaveState::Por,
-//             input_data,
-//             input_data_buffer,
-//             output_data,
-//             output_data_buffer,
-//             user_para,
-//             extern_diag_para,
-//             module_config,
-//             diagnose_status_1: sap_diagnose_byte1::STATION_NOT_READY,
-//             master_addr: 0xFF,
-//             group: 0,
-//             source_addr: 0xFF,
-//             fcv_activated: false,
-//             fcb_last: false,
-//             freeze: false,
-//             sync: false,
-//             watchdog_act: false,
-//             min_tsdr: 0,
-//             freeze_configured: false,
-//             sync_configured: false,
-//             last_connection_time: current_time,
-//             watchdog_time: 0xFFFFFF,
-//         };
-//         // instance.codec.set_fdl(&instance);
-//         instance
-//     }
-
-//     pub fn access_output(&mut self) -> &mut [u8; OUTPUT_DATA_SIZE] {
-//         &mut self.output_data
-//     }
-
-//     pub fn access_input(&mut self) -> &mut [u8; INPUT_DATA_SIZE] {
-//         &mut self.input_data
-//     }
+//     false
+// }
 
 //     // if self.watchdog_act {
 //     //     if (self.data_handling_interface.millis() - self.last_connection_time)
@@ -814,27 +1030,27 @@ const MASTER_ADD_DEFAULT: u8 = 0xFF;
 //     // }
 // }
 
-#[allow(dead_code)]
-pub struct PbDpSlave<
-> {
-}
+// #[allow(dead_code)]
+// pub struct PbDpSlave<
+// > {
+// }
 
-impl PbDpSlave
-{
-    pub fn new()-> Self {
-        Self{}
-    }
-}
+// impl PbDpSlave
+// {
+//     pub fn new()-> Self {
+//         Self{}
+//     }
+// }
 
-impl Fdl for PbDpSlave
-{
-    fn handle_data_receive(
-        & self,
-        source_addr: u8,
-        destination_addr: u8,
-        function_code: u8,
-        pdu: &[u8],
-    ) -> bool {
-        true
-    }
-}
+// impl Fdl for PbDpSlave
+// {
+//     fn handle_data_receive(
+//         & self,
+//         source_addr: u8,
+//         destination_addr: u8,
+//         function_code: u8,
+//         pdu: &[u8],
+//     ) -> bool {
+//         true
+//     }
+// }

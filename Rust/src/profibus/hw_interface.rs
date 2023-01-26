@@ -78,12 +78,12 @@ pub trait HwInterface {
 
     fn schedule_receive_handling(&mut self) {}
 
-    fn get_rx_buffer(&mut self) -> Option<&mut [u8]> {
-        None
+    fn get_rx_buffer(&mut self) -> &mut [u8] {
+        &mut [0;0]
     }
 
-    fn get_tx_buffer(&mut self) -> Option<&mut [u8]> {
-        None
+    fn get_tx_buffer(&mut self) -> &mut [u8] {
+        &mut [0;0]
     }
 
     fn get_baudrate(&self) -> u32 {

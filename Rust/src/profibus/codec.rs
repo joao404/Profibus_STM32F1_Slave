@@ -14,7 +14,6 @@
  * LICENSE file for more details.
  */
 
-use super::hw_interface::HwInterface;
 use super::types::cmd_type;
 
 #[derive(PartialEq, Eq, Copy, Clone)]
@@ -99,254 +98,233 @@ const SAP_OFFSET: u8 = 128;
 const BROADCAST_ADD: u8 = 127;
 const DEFAULT_ADD: u8 = 126;
 
-#[allow(dead_code)]
-pub struct Codec<'a, Serial, DataHandler> {
-    config: Config,
-    interface: Serial,
+pub struct CodecVariables {
+    pub config: Config,
 
-    rx_len: usize,
-    tx_len: usize,
-    tx_pos: usize,
+    pub rx_len: usize,
+    pub tx_len: usize,
+    pub tx_pos: usize,
 
-    stream_state: StreamState,
-    timeout_max_syn_time_in_us: u32,
-    timeout_max_rx_time_in_us: u32,
-    timeout_max_tx_time_in_us: u32,
-    timeout_max_sdr_time_in_us: u32,
+    pub stream_state: StreamState,
+    pub timeout_max_syn_time_in_us: u32,
+    pub timeout_max_rx_time_in_us: u32,
+    pub timeout_max_tx_time_in_us: u32,
+    pub timeout_max_sdr_time_in_us: u32,
 
-    timer_timeout_in_us: u32,
-
-    fdl: Option<&'a DataHandler>,
+    pub timer_timeout_in_us: u32,
 }
 
-impl<'a, Serial, DataHandler> Codec<'a, Serial, DataHandler> 
-where
-    Serial: HwInterface,
-    DataHandler: Fdl,
-{
-    pub fn new(mut interface: Serial, mut config: Config) -> Self {
-        let timeout_max_syn_time_in_us =
-            (33 * interface.get_timer_frequency()) / interface.get_baudrate(); // 33 TBit = TSYN
-        let timeout_max_rx_time_in_us =
-            (15 * interface.get_timer_frequency()) / interface.get_baudrate();
-        let timeout_max_tx_time_in_us =
-            (15 * interface.get_timer_frequency()) / interface.get_baudrate();
-        let timeout_max_sdr_time_in_us =
-            (15 * interface.get_timer_frequency()) / interface.get_baudrate(); // 15 Tbit = TSDR
+impl CodecVariables {
+    // fn new() -> Self{
+    //     let mut instance = CodecVariables::default();
 
-        if (0 == config.t_s) || (config.t_s > DEFAULT_ADD) {
-            config.t_s = DEFAULT_ADD;
-        }
+    //     instance
+    // }
+}
 
-        // Timer init
-        interface.config_timer();
-        // Pin Init
-        interface.config_rs485_pin();
-
-        // Uart Init
-        interface.config_uart();
-        interface.run_timer(timeout_max_syn_time_in_us);
-        interface.rx_rs485_enable();
-        interface.activate_rx_interrupt();
-
-        interface.debug_write("Codec");
-
-        Self {
-            config,
-            interface,
+impl Default for CodecVariables {
+    fn default() -> CodecVariables {
+        CodecVariables {
+            config: Config::default(),
             rx_len: 0,
             tx_len: 0,
             tx_pos: 0,
             stream_state: StreamState::WaitSyn,
-            timeout_max_syn_time_in_us,
-            timeout_max_rx_time_in_us,
-            timeout_max_tx_time_in_us,
-            timeout_max_sdr_time_in_us,
-            timer_timeout_in_us: timeout_max_syn_time_in_us,
-            fdl: None,
+            timeout_max_syn_time_in_us: 0xFFFFFFFF,
+            timeout_max_rx_time_in_us: 0xFFFFFFFF,
+            timeout_max_tx_time_in_us: 0xFFFFFFFF,
+            timeout_max_sdr_time_in_us: 0xFFFFFFFF,
+
+            timer_timeout_in_us: 0xFFFFFFFF,
         }
     }
+}
 
-    pub fn set_fdl(&mut self, fdl: &'a DataHandler) {
-        self.fdl = Some(fdl);
-    }
+#[allow(dead_code)]
+pub trait Codec {
+    fn codec_config(&mut self, config: &mut Config) {
+        let timer_frequency = self.get_timer_frequency();
+        let baudrate = self.get_baudrate();
+        {
+            let codec_variables = self.access_codec_variables();
+            codec_variables.timeout_max_syn_time_in_us = (33 * timer_frequency) / baudrate; // 33 TBit = TSYN
+            codec_variables.timeout_max_rx_time_in_us = (15 * timer_frequency) / baudrate;
+            codec_variables.timeout_max_tx_time_in_us = (15 * timer_frequency) / baudrate;
+            codec_variables.timeout_max_sdr_time_in_us = (15 * timer_frequency) / baudrate; // 15 Tbit = TSDR
 
-    pub fn get_TS(&self) -> u8 {
-        self.config.t_s
-    }
+            codec_variables.timer_timeout_in_us = codec_variables.timeout_max_syn_time_in_us;
 
-    pub fn set_TS(&mut self, TS: u8) {
-        if TS < BROADCAST_ADD {
-            self.config.t_s = TS;
-        } else {
-            self.interface.debug_write("E:TS>126");
+            if (0 == config.t_s) || (config.t_s > DEFAULT_ADD) {
+                config.t_s = DEFAULT_ADD;
+            }
+
+            codec_variables.rx_len = 0;
+            codec_variables.tx_len = 0;
+            codec_variables.tx_pos = 0;
+            codec_variables.stream_state = StreamState::WaitSyn;
         }
-    }
 
-    pub fn get_baudrate(&self) -> u32 {
-        self.interface.get_baudrate()
-    }
+        let timer_timeout_in_us = self.access_codec_variables().timer_timeout_in_us;
+        // Timer init
+        self.config_timer();
+        // Pin Init
+        self.config_rs485_pin();
 
-    pub fn get_t_sl(&self) -> u16 {
-        self.config.t_sl
-    }
+        // Uart Init
+        self.config_uart();
+        self.run_timer(timer_timeout_in_us);
+        self.rx_rs485_enable();
+        self.activate_rx_interrupt();
 
-    pub fn set_t_sl(&mut self, t_sl: u16) {
-        if 52 >= t_sl {
-            self.config.t_sl = t_sl;
-        } else {
-            self.interface.debug_write("E:Tsl<52");
-        }
-    }
-
-    pub fn get_t_sdr_min(&self) -> u16 {
-        self.config.t_sdr_min
-    }
-
-    pub fn set_t_sdr_min(&mut self, t_sdr_min: u16) {
-        if 20 >= t_sdr_min {
-            self.config.t_sdr_min = t_sdr_min;
-        } else {
-            self.interface.debug_write("E:Tsdr<20");
-        }
+        self.debug_write("Codec");
     }
 
     fn reset_data_stream(&mut self) {
-        self.rx_len = 0;
-        self.stream_state = StreamState::WaitSyn;
-        self.timer_timeout_in_us = self.timeout_max_syn_time_in_us;
-        self.interface.run_timer(self.timer_timeout_in_us);
-        self.interface.rx_rs485_enable();
-        self.interface.deactivate_tx_interrupt();
+        let codec_variables = self.access_codec_variables();
+        codec_variables.rx_len = 0;
+        codec_variables.stream_state = StreamState::WaitSyn;
+        codec_variables.timer_timeout_in_us = codec_variables.timeout_max_syn_time_in_us;
+        let timer_timeout_in_us = codec_variables.timer_timeout_in_us;
+        self.run_timer(timer_timeout_in_us);
+        self.rx_rs485_enable();
+        self.deactivate_tx_interrupt();
     }
 
-    pub fn serial_interrupt_handler(&mut self) {
-        if self.interface.is_rx_received() {
+    fn serial_interrupt_handler(&mut self) {
+        if self.is_rx_received() {
             self.rx_interrupt_handler();
-        } else if self.interface.is_tx_done() {
+        } else if self.is_tx_done() {
             self.tx_interrupt_handler();
         }
     }
 
-    pub fn rx_interrupt_handler(&mut self) {
-        self.interface.stop_timer();
+    fn rx_interrupt_handler(&mut self) {
+        self.stop_timer();
         loop {
-            match self.interface.get_uart_value() {
+            match self.get_uart_value() {
                 Some(data) => {
-                    if StreamState::WaitData == self.stream_state {
-                        self.stream_state = StreamState::GetData;
+                    if StreamState::WaitData == self.access_codec_variables().stream_state {
+                        self.access_codec_variables().stream_state = StreamState::GetData;
                     }
 
-                    if StreamState::GetData == self.stream_state {
-                        if let Some(buf) = self.interface.get_rx_buffer() {
-                            buf[self.rx_len] = data;
-                            if self.rx_len < buf.len() {
-                                self.rx_len += 1;
+                    if StreamState::GetData == self.access_codec_variables().stream_state {
+                        let mut rx_len = self.access_codec_variables().rx_len;
+                        let buf = self.get_rx_buffer();
+                            buf[rx_len] = data;
+                            if rx_len < buf.len() {
+                                rx_len += 1;
                             }
-                        }
+                        self.access_codec_variables().rx_len = rx_len;
                     }
                 }
                 None => break,
             }
         }
-        self.interface.run_timer(self.timer_timeout_in_us);
+        let timer_timeout_in_us = self.access_codec_variables().timer_timeout_in_us;
+        self.run_timer(timer_timeout_in_us);
     }
 
-    pub fn tx_interrupt_handler(&mut self) {
-        self.interface.stop_timer();
-        if self.config.tx_handling == UartAccess::SingleByte {
-            if self.tx_pos < self.tx_len {
-                self.interface.clear_tx_flag();
-                if let Some(buf) = self.interface.get_tx_buffer() {
-                let data = buf[self.tx_pos];
-                self.interface.set_uart_value(data);
-                self.tx_pos += 1;
-                }
+    fn tx_interrupt_handler(&mut self) {
+        self.stop_timer();
+        if self.access_codec_variables().config.tx_handling == UartAccess::SingleByte {
+            if self.access_codec_variables().tx_pos < self.access_codec_variables().tx_len {
+                self.clear_tx_flag();
+                let tx_pos = self.access_codec_variables().tx_pos;
+                let buf = self.get_tx_buffer();
+                    let data = buf[tx_pos];
+                    self.set_uart_value(data);
+                    self.access_codec_variables().tx_pos += 1;
             } else {
-                self.interface.tx_rs485_disable();
+                self.tx_rs485_disable();
                 // Alles gesendet, Interrupt wieder aus
-                self.interface.deactivate_tx_interrupt();
+                self.deactivate_tx_interrupt();
                 // clear Flag because we are not writing to buffer
-                self.interface.clear_tx_flag();
+                self.clear_tx_flag();
             }
-        } else if self.config.tx_handling == UartAccess::Dma {
-            self.interface.tx_rs485_disable();
+        } else if self.access_codec_variables().config.tx_handling == UartAccess::Dma {
+            self.tx_rs485_disable();
             // Alles gesendet, Interrupt wieder aus
-            self.interface.deactivate_tx_interrupt();
+            self.deactivate_tx_interrupt();
             // clear Flag because we are not writing to buffer
-            self.interface.clear_tx_flag();
+            self.clear_tx_flag();
         }
-        self.interface.run_timer(self.timer_timeout_in_us);
+        let timer_timeout_in_us = self.access_codec_variables().timer_timeout_in_us;
+        self.run_timer(timer_timeout_in_us);
     }
 
-    pub fn timer_interrupt_handler(&mut self) {
-        self.interface.stop_timer();
-        match self.stream_state {
+    fn timer_interrupt_handler(&mut self) {
+        self.stop_timer();
+        match self.access_codec_variables().stream_state {
             StreamState::WaitSyn => {
-                self.stream_state = StreamState::WaitData;
-                self.rx_len = 0;
-                self.interface.rx_rs485_enable(); // Auf Receive umschalten
-                self.timer_timeout_in_us = self.timeout_max_sdr_time_in_us;
+                self.access_codec_variables().stream_state = StreamState::WaitData;
+                self.access_codec_variables().rx_len = 0;
+                self.rx_rs485_enable(); // Auf Receive umschalten
+                self.access_codec_variables().timer_timeout_in_us =
+                    self.access_codec_variables().timeout_max_sdr_time_in_us;
             }
             StreamState::GetData => {
-                self.timer_timeout_in_us = self.timeout_max_syn_time_in_us;
-                self.interface.deactivate_rx_interrupt();
-                if self.config.receive_handling == ReceiveHandling::Interrupt {
-                    self.stream_state = StreamState::WaitSyn;
+                self.access_codec_variables().timer_timeout_in_us =
+                    self.access_codec_variables().timeout_max_syn_time_in_us;
+                self.deactivate_rx_interrupt();
+                if self.access_codec_variables().config.receive_handling
+                    == ReceiveHandling::Interrupt
+                {
+                    self.access_codec_variables().stream_state = StreamState::WaitSyn;
                     self.handle_data_receive();
-                } else if self.config.receive_handling == ReceiveHandling::Thread {
-                    self.stream_state = StreamState::HandleData;
-                    self.interface.schedule_receive_handling();
+                } else if self.access_codec_variables().config.receive_handling
+                    == ReceiveHandling::Thread
+                {
+                    self.access_codec_variables().stream_state = StreamState::HandleData;
+                    self.schedule_receive_handling();
                 }
             }
             StreamState::WaitMinTsdr => {
-                self.stream_state = StreamState::SendData;
-                self.timer_timeout_in_us = self.timeout_max_tx_time_in_us;
-                self.interface.wait_for_activ_transmission();
-                self.interface.tx_rs485_enable();
-                self.interface.clear_tx_flag();
-                if self.config.tx_handling == UartAccess::SingleByte {
-                    if let Some(buf) = self.interface.get_tx_buffer() {
-                        let data = buf[self.tx_pos];
-                    self.interface.set_uart_value(data);
-                    self.interface.activate_tx_interrupt();
-                    self.tx_pos += 1;
-                    }
-                    self.interface.run_timer(self.timer_timeout_in_us);
-                } else if self.config.tx_handling == UartAccess::Dma {
-                    self.interface.send_uart_data(self.tx_len);
-                    self.interface.activate_tx_interrupt();
+                self.access_codec_variables().stream_state = StreamState::SendData;
+                self.access_codec_variables().timer_timeout_in_us =
+                    self.access_codec_variables().timeout_max_tx_time_in_us;
+                self.wait_for_activ_transmission();
+                self.tx_rs485_enable();
+                self.clear_tx_flag();
+                if self.access_codec_variables().config.tx_handling == UartAccess::SingleByte {
+                    let mut tx_pos = self.access_codec_variables().tx_pos;
+                    let buf = self.get_tx_buffer();
+                        let data = buf[tx_pos];
+                        self.set_uart_value(data);
+                        self.activate_tx_interrupt();
+                        tx_pos += 1;
+                    self.access_codec_variables().tx_pos = tx_pos;
+                } else if self.access_codec_variables().config.tx_handling == UartAccess::Dma {
+                    let tx_len = self.access_codec_variables().tx_len;
+                    self.send_uart_data(tx_len);
+                    self.activate_tx_interrupt();
                 }
             }
             StreamState::SendData => {
-                self.stream_state = StreamState::WaitSyn;
-                self.timer_timeout_in_us = self.timeout_max_syn_time_in_us;
-                self.interface.rx_rs485_enable();
+                self.access_codec_variables().stream_state = StreamState::WaitSyn;
+                self.access_codec_variables().timer_timeout_in_us =
+                    self.access_codec_variables().timeout_max_syn_time_in_us;
+                self.rx_rs485_enable();
             }
             _ => (),
         }
-        self.interface.run_timer(self.timer_timeout_in_us);
+        let timer_timeout_in_us = self.access_codec_variables().timer_timeout_in_us;
+        self.run_timer(timer_timeout_in_us);
     }
 
-    pub fn transmit_message_sd1(
-        &mut self,
-        destination_addr: u8,
-        function_code: u8,
-        sap_offset: bool,
-    ) {
-        if let Some(buf) = self.interface.get_tx_buffer() {
-        buf[0] = cmd_type::SD1;
-        buf[1] = destination_addr;
-        buf[2] = self.config.t_s + if sap_offset { SAP_OFFSET } else { 0 };
-        buf[3] = function_code;
-        buf[4] = calc_checksum(&buf[1..4]);
-        buf[5] = cmd_type::ED;
-        self.tx_len = 6;
-        self.transmit();
-        }
+    fn transmit_message_sd1(&mut self, destination_addr: u8, function_code: u8, sap_offset: bool) {
+        let t_s = self.access_codec_variables().config.t_s;
+        let buf = self.get_tx_buffer();
+            buf[0] = cmd_type::SD1;
+            buf[1] = destination_addr;
+            buf[2] = t_s + if sap_offset { SAP_OFFSET } else { 0 };
+            buf[3] = function_code;
+            buf[4] = calc_checksum(&buf[1..4]);
+            buf[5] = cmd_type::ED;
+            self.access_codec_variables().tx_len = 6;
+            self.transmit();
     }
 
-    pub fn transmit_message_sd2(
+    fn transmit_message_sd2(
         &mut self,
         destination_addr: u8,
         function_code: u8,
@@ -354,139 +332,142 @@ where
         pdu1: &[u8],
         pdu2: &[u8],
     ) {
-        if let Some(buf) = self.interface.get_tx_buffer() {
-        buf[0] = cmd_type::SD2;
-        buf[1] = 3 + pdu1.len().to_le_bytes()[0] + pdu2.len().to_le_bytes()[0];
-        buf[2] = 3 + pdu1.len().to_le_bytes()[0] + pdu2.len().to_le_bytes()[0];
-        buf[3] = cmd_type::SD2;
-        buf[4] = destination_addr;
-        buf[5] = self.config.t_s + if sap_offset { SAP_OFFSET } else { 0 };
-        buf[6] = function_code;
-        if pdu1.len() > 0 {
-            for i in 0..pdu1.len() {
-                buf[7 + i] = pdu1[i];
+        let t_s = self.access_codec_variables().config.t_s;
+        let buf = self.get_tx_buffer();
+            buf[0] = cmd_type::SD2;
+            buf[1] = 3 + pdu1.len().to_le_bytes()[0] + pdu2.len().to_le_bytes()[0];
+            buf[2] = 3 + pdu1.len().to_le_bytes()[0] + pdu2.len().to_le_bytes()[0];
+            buf[3] = cmd_type::SD2;
+            buf[4] = destination_addr;
+            buf[5] = t_s + if sap_offset { SAP_OFFSET } else { 0 };
+            buf[6] = function_code;
+            if pdu1.len() > 0 {
+                for i in 0..pdu1.len() {
+                    buf[7 + i] = pdu1[i];
+                }
             }
-        }
-        if pdu2.len() > 0 {
-            for i in 0..pdu2.len() {
-                buf[7 + i + pdu1.len()] = pdu2[i];
+            if pdu2.len() > 0 {
+                for i in 0..pdu2.len() {
+                    buf[7 + i + pdu1.len()] = pdu2[i];
+                }
             }
-        }
-        let checksum = calc_checksum(&buf[4..7])
-            + calc_checksum(pdu1)
-            + calc_checksum(pdu2);
-        buf[7 + pdu1.len() + pdu2.len()] = checksum;
-        buf[8 + pdu1.len() + pdu2.len()] = cmd_type::ED;
-        self.tx_len = 9 + pdu1.len() + pdu2.len();
-        self.transmit();
-    }
+            let checksum = calc_checksum(&buf[4..7]) + calc_checksum(pdu1) + calc_checksum(pdu2);
+            buf[7 + pdu1.len() + pdu2.len()] = checksum;
+            buf[8 + pdu1.len() + pdu2.len()] = cmd_type::ED;
+            self.access_codec_variables().tx_len = 9 + pdu1.len() + pdu2.len();
+            self.transmit();
     }
 
     #[allow(dead_code)]
-    pub fn transmit_message_sd3(
+    fn transmit_message_sd3(
         &mut self,
         destination_addr: u8,
         function_code: u8,
         sap_offset: bool,
         pdu: &[u8; 8],
     ) {
-        if let Some(buf) = self.interface.get_tx_buffer() {
-        buf[0] = cmd_type::SD3;
-        buf[1] = destination_addr;
-        buf[2] = self.config.t_s + if sap_offset { SAP_OFFSET } else { 0 };
-        buf[3] = function_code;
-        for i in 0..pdu.len() {
-            buf[4 + i] = pdu[i];
-        }
-        buf[12] = calc_checksum(&buf[1..12]);
-        buf[13] = cmd_type::ED;
-        self.tx_len = 14;
-        self.transmit();
-    }
+        let t_s = self.access_codec_variables().config.t_s;
+        let buf = self.get_tx_buffer();
+            buf[0] = cmd_type::SD3;
+            buf[1] = destination_addr;
+            buf[2] = t_s + if sap_offset { SAP_OFFSET } else { 0 };
+            buf[3] = function_code;
+            for i in 0..pdu.len() {
+                buf[4 + i] = pdu[i];
+            }
+            buf[12] = calc_checksum(&buf[1..12]);
+            buf[13] = cmd_type::ED;
+            self.access_codec_variables().tx_len = 14;
+            self.transmit();
     }
 
     #[allow(dead_code)]
-    pub fn transmit_message_sd4(&mut self, destination_addr: u8, sap_offset: bool) {
-        if let Some(buf) = self.interface.get_tx_buffer() {
-        buf[0] = cmd_type::SD4;
-        buf[1] = destination_addr;
-        buf[2] = self.config.t_s + if sap_offset { SAP_OFFSET } else { 0 };
-        self.tx_len = 3;
-        self.transmit();
-        }
+    fn transmit_message_sd4(&mut self, destination_addr: u8, sap_offset: bool) {
+        let t_s = self.access_codec_variables().config.t_s;
+        let buf = self.get_tx_buffer();
+            buf[0] = cmd_type::SD4;
+            buf[1] = destination_addr;
+            buf[2] = t_s + if sap_offset { SAP_OFFSET } else { 0 };
+            self.access_codec_variables().tx_len = 3;
+            self.transmit();
     }
 
-    pub fn transmit_message_sc(&mut self) {
-        if let Some(buf) = self.interface.get_tx_buffer() {
-        buf[0] = cmd_type::SC;
-        self.tx_len = 1;
-        self.transmit();
-        }
+    fn transmit_message_sc(&mut self) {
+        let buf = self.get_tx_buffer();
+            buf[0] = cmd_type::SC;
+            self.access_codec_variables().tx_len = 1;
+            self.transmit();
     }
 
-    pub fn transmit(&mut self) {
-        self.interface.stop_timer();
-        self.tx_pos = 0;
-        if 0 != self.config.t_sdr_min {
-            self.stream_state = StreamState::WaitMinTsdr;
-            self.timer_timeout_in_us = (self.interface.get_timer_frequency()
-                * u32::from(self.config.t_sdr_min))
-                / self.interface.get_baudrate()
+    fn transmit(&mut self) {
+        self.stop_timer();
+        self.access_codec_variables().tx_pos = 0;
+        if 0 != self.access_codec_variables().config.t_sdr_min {
+            self.access_codec_variables().stream_state = StreamState::WaitMinTsdr;
+            let timer_frequency = self.get_timer_frequency();
+            let baudrate = self.get_baudrate();
+            self.access_codec_variables().timer_timeout_in_us = (timer_frequency
+                * u32::from(self.access_codec_variables().config.t_sdr_min))
+                / baudrate
                 / 2u32;
-            self.interface.run_timer(self.timer_timeout_in_us);
+            let timer_timeout_in_us = self.access_codec_variables().timer_timeout_in_us;
+            self.run_timer(timer_timeout_in_us);
         } else {
-            self.stream_state = StreamState::SendData;
-            self.interface.wait_for_activ_transmission();
-            self.timer_timeout_in_us = self.timeout_max_tx_time_in_us;
+            self.access_codec_variables().stream_state = StreamState::SendData;
+            self.wait_for_activ_transmission();
+            self.access_codec_variables().timer_timeout_in_us =
+                self.access_codec_variables().timeout_max_tx_time_in_us;
             // activate Send Interrupt
-            self.interface.tx_rs485_enable();
-            self.interface.clear_tx_flag();
-            if self.config.tx_handling == UartAccess::SingleByte {
-                if let Some(buf) = self.interface.get_tx_buffer() {
-                    let data = buf[self.tx_pos];
-                self.interface.set_uart_value(data);
-                self.interface.activate_tx_interrupt();
-                self.tx_pos += 1;
-                }
-                self.interface.run_timer(self.timer_timeout_in_us);
-            } else if self.config.tx_handling == UartAccess::Dma {
-                self.interface.send_uart_data(self.tx_len);
-                self.interface.activate_tx_interrupt();
+            self.tx_rs485_enable();
+            self.clear_tx_flag();
+            if self.access_codec_variables().config.tx_handling == UartAccess::SingleByte {
+                let mut tx_pos = self.access_codec_variables().tx_pos;
+                let buf = self.get_tx_buffer();
+                let data = buf[tx_pos];
+                self.set_uart_value(data);
+                self.activate_tx_interrupt();
+                tx_pos += 1;
+                self.access_codec_variables().tx_pos = tx_pos;
+                let timer_timeout_in_us = self.access_codec_variables().timer_timeout_in_us;
+                self.run_timer(timer_timeout_in_us);
+            } else if self.access_codec_variables().config.tx_handling == UartAccess::Dma {
+                let tx_len = self.access_codec_variables().tx_len;
+                self.send_uart_data(tx_len);
+                self.activate_tx_interrupt();
             }
         }
     }
 
-    pub fn handle_data_receive(&mut self) {
+    fn handle_data_receive(&mut self) {
         let mut response = false;
 
-        // Profibus Datentypen
         let mut source_addr: u8 = 0;
         let mut destination_addr: u8 = 0;
         let mut function_code: u8 = 0;
-        let mut pdu_len: u8 = 0; // PDU Groesse
+        let mut pdu_len: u8 = 0;
 
-        if let Some(buf) = self.interface.get_rx_buffer() {
+        let rx_len = self.access_codec_variables().rx_len;
+        let t_s = self.access_codec_variables().config.t_s;
+        let buf = self.get_rx_buffer();
         match buf[0] {
             cmd_type::SD1 => {
-                if 6 == self.rx_len {
+                if 6 == rx_len {
                     if cmd_type::ED == buf[5] {
                         destination_addr = buf[1];
                         source_addr = buf[2];
                         function_code = buf[3];
                         let fcs_data = buf[4]; // Frame Check Sequence
 
-                        if check_destination_addr(self.config.t_s, destination_addr) {
+                        if check_destination_addr(t_s, destination_addr) {
                             if fcs_data == calc_checksum(&buf[1..4]) {
                                 // FCV und FCB loeschen, da vorher überprüft
                                 function_code &= 0xCF;
-                                if let Some(fdl) = self.fdl {
-                                    response = fdl.handle_data_receive(
-                                        source_addr,
-                                        destination_addr,
-                                        function_code,
-                                        &[0; 0],
-                                    );
-                                }
+                                response = self.fdl_handle_data(
+                                    source_addr,
+                                    destination_addr,
+                                    function_code,
+                                    &[0; 0],
+                                );
                             }
                         }
                     }
@@ -494,30 +475,24 @@ where
             }
 
             cmd_type::SD2 => {
-                if self.rx_len > 4 {
-                    if self.rx_len == usize::from(buf[1] + 6) {
-                        if cmd_type::ED == buf[self.rx_len - 1] {
+                if rx_len > 4 {
+                    if rx_len == usize::from(buf[1] + 6) {
+                        if cmd_type::ED == buf[rx_len - 1] {
                             pdu_len = buf[1]; // DA+SA+FC+Nutzdaten
                             destination_addr = buf[4];
                             source_addr = buf[5];
                             function_code = buf[6];
                             let fcs_data = buf[usize::from(pdu_len + 4)]; // Frame Check Sequence
-                            if check_destination_addr(self.config.t_s, destination_addr) {
-                                if fcs_data
-                                    == calc_checksum(
-                                        &buf[4..usize::from(self.rx_len - 2)],
-                                    )
-                                {
+                            if check_destination_addr(t_s, destination_addr) {
+                                if fcs_data == calc_checksum(&buf[4..usize::from(rx_len - 2)]) {
                                     // FCV und FCB loeschen, da vorher überprüft
                                     function_code &= 0xCF;
-                                    if let Some(fdl) = self.fdl {
-                                        response = fdl.handle_data_receive(
-                                            source_addr,
-                                            destination_addr,
-                                            function_code,
-                                            &buf[7..usize::from(self.rx_len - 2)],
-                                        );
-                                    }
+                                    response = self.fdl_handle_data(
+                                        source_addr,
+                                        destination_addr,
+                                        function_code,
+                                        &buf[7..usize::from(rx_len - 2)],
+                                    );
                                 }
                             }
                         }
@@ -526,7 +501,7 @@ where
             }
 
             cmd_type::SD3 => {
-                if 14 == self.rx_len {
+                if 14 == rx_len {
                     if cmd_type::ED == buf[13] {
                         pdu_len = 11; // DA+SA+FC+Nutzdaten
                         destination_addr = buf[1];
@@ -534,18 +509,16 @@ where
                         function_code = buf[3];
                         let fcs_data = buf[12]; // Frame Check Sequence
 
-                        if check_destination_addr(self.config.t_s, destination_addr) {
+                        if check_destination_addr(t_s, destination_addr) {
                             if fcs_data == calc_checksum(&buf[1..12]) {
                                 // FCV und FCB loeschen, da vorher überprüft
                                 function_code &= 0xCF;
-                                if let Some(fdl) = self.fdl {
-                                    response = fdl.handle_data_receive(
-                                        source_addr,
-                                        destination_addr,
-                                        function_code,
-                                        &buf[4..12],
-                                    );
-                                }
+                                response = self.fdl_handle_data(
+                                    source_addr,
+                                    destination_addr,
+                                    function_code,
+                                    &buf[4..12],
+                                );
                             }
                         }
                     }
@@ -553,11 +526,14 @@ where
             }
 
             cmd_type::SD4 => {
-                if 3 == self.rx_len {
+                if 3 == rx_len {
                     destination_addr = buf[1];
                     source_addr = buf[2];
 
-                    if check_destination_addr(self.config.t_s, destination_addr) {
+                    if check_destination_addr(
+                        self.access_codec_variables().config.t_s,
+                        destination_addr,
+                    ) {
                         //TODO
                     }
                 }
@@ -565,22 +541,87 @@ where
 
             _ => (),
         } // match self.buffer[0]
-    }
         if !response {
             self.reset_data_stream();
         }
-        self.interface.activate_rx_interrupt();
+        self.activate_rx_interrupt();
     }
-}
 
-pub trait Fdl {
-    fn handle_data_receive(
-        &self,
+    fn fdl_handle_data(
+        &mut self,
         source_addr: u8,
         destination_addr: u8,
         function_code: u8,
         pdu: &[u8],
     ) -> bool;
+
+    fn access_codec_variables(&mut self) -> &mut CodecVariables;
+
+    fn config_timer(&mut self);
+
+    fn run_timer(&mut self, _timeout_in_us: u32);
+
+    fn stop_timer(&mut self);
+
+    fn clear_overflow_flag(&mut self);
+
+    fn config_uart(&mut self);
+
+    fn activate_tx_interrupt(&mut self);
+
+    fn deactivate_tx_interrupt(&mut self);
+
+    fn activate_rx_interrupt(&mut self);
+
+    fn deactivate_rx_interrupt(&mut self);
+
+    fn activate_idle_interrupt(&mut self);
+
+    fn deactivate_idle_interrupt(&mut self);
+
+    fn set_tx_flag(&mut self);
+
+    fn clear_tx_flag(&mut self);
+
+    fn clear_rx_flag(&mut self);
+
+    fn clear_idle_flag(&mut self);
+
+    fn wait_for_activ_transmission(&mut self);
+
+    fn is_rx_received(&mut self) -> bool;
+
+    fn is_rx_idle(&mut self) -> bool;
+
+    fn is_tx_done(&mut self) -> bool;
+
+    fn tx_rs485_enable(&mut self);
+
+    fn tx_rs485_disable(&mut self);
+
+    fn rx_rs485_enable(&mut self);
+
+    fn config_rs485_pin(&mut self);
+
+    fn get_uart_value(&mut self) -> Option<u8>;
+
+    fn set_uart_value(&mut self, _value: u8);
+
+    fn send_uart_data(&mut self, _len: usize);
+
+    fn get_uart_data(&mut self) -> usize;
+
+    fn schedule_receive_handling(&mut self);
+
+    fn get_rx_buffer(&mut self) -> &mut [u8];
+
+    fn get_tx_buffer(&mut self) -> &mut [u8];
+
+    fn get_timer_frequency(&self) -> u32;
+
+    fn get_baudrate(&self) -> u32;
+
+    fn debug_write(&mut self, _debug: &str);
 }
 
 fn calc_checksum(data: &[u8]) -> u8 {
@@ -600,4 +641,13 @@ fn check_destination_addr(address: u8, destination: u8) -> bool {
     } else {
         true
     }
+}
+
+extern "Rust" {
+    fn fdl_handle_data(
+        source_addr: u8,
+        destination_addr: u8,
+        function_code: u8,
+        pdu: &[u8],
+    ) -> bool;
 }

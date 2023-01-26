@@ -31,26 +31,26 @@ use stm32f1xx_hal::{
 };
 
 pub(crate) fn handle_data_receive(cx: handle_data_receive::Context) {
-    let mut profibus_fdl = cx.shared.profibus_fdl;
+    let mut profibus_slave = cx.shared.profibus_slave;
 
-    profibus_fdl.lock(|profibus_fdl| {
-        profibus_fdl.codec.handle_data_receive();
+    profibus_slave.lock(|profibus_slave| {
+        profibus_slave.handle_data_receive();
     });
 }
 
 pub(crate) fn usart3_rx(cx: usart3_rx::Context) {
-    let mut profibus_fdl = cx.shared.profibus_fdl;
+    let mut profibus_slave = cx.shared.profibus_slave;
 
-    profibus_fdl.lock(|profibus_fdl| {
-        profibus_fdl.codec.serial_interrupt_handler();
+    profibus_slave.lock(|profibus_slave| {
+        profibus_slave.serial_interrupt_handler();
     });
 }
 
 pub(crate) fn timer2_max(cx: timer2_max::Context) {
-    let mut profibus_fdl = cx.shared.profibus_fdl;
+    let mut profibus_slave = cx.shared.profibus_slave;
 
-    profibus_fdl.lock(|profibus_fdl| {
-        profibus_fdl.codec.timer_interrupt_handler();
+    profibus_slave.lock(|profibus_slave| {
+        profibus_slave.timer_interrupt_handler();
     });
 }
 
@@ -192,12 +192,12 @@ impl<const BUF_SIZE: usize> PbInterface for PbDpHwInterface<BUF_SIZE> {
         handle_data_receive::spawn().ok();
     }
 
-    fn get_rx_buffer(&mut self) -> Option<&mut [u8]> {
-        Some(&mut self.rx_buffer[..])
+    fn get_rx_buffer(&mut self) -> &mut [u8] {
+        &mut self.rx_buffer[..]
     }
 
-    fn get_tx_buffer(&mut self) -> Option<&mut [u8]> {
-        Some(&mut self.tx_buffer[..])
+    fn get_tx_buffer(&mut self) -> &mut [u8] {
+        &mut self.tx_buffer[..]
     }
 
     fn get_baudrate(&self) -> u32 {
