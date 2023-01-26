@@ -72,27 +72,15 @@ pub trait HwInterface {
 
     fn set_uart_value(&mut self, _value: u8) {}
 
-    fn send_uart_data(&mut self, _len : usize) {}
+    fn send_uart_data(&mut self, _value: &[u8]) {}
 
-    fn get_uart_data(&mut self) -> usize {0}
+    fn get_uart_data(&mut self, _value: &mut [u8]) {}
 
     fn schedule_receive_handling(&mut self) {}
 
-    fn get_rx_buffer(&mut self) -> &mut [u8] {
-        &mut [0;0]
-    }
+    fn get_baudrate(&self) -> u32 {0}
 
-    fn get_tx_buffer(&mut self) -> &mut [u8] {
-        &mut [0;0]
-    }
-
-    fn get_baudrate(&self) -> u32 {
-        0
-    }
-
-    fn get_timer_frequency(&self) -> u32 {
-        0
-    }
+    fn get_timer_frequency(&self) -> u32 {0}
 
     fn debug_write(&mut self, _debug: &str) {}
 }

@@ -17,7 +17,7 @@
 use crate::app::{
     handle_data_receive, save_debug_message, timer2_max, usart3_rx, DEBUG_STRING_SIZE,
 };
-use crate::profibus::{DataHandlingInterface as PbDataHandling, HwInterface as PbInterface, Codec};
+use crate::profibus::{DataHandlingInterface as PbDataHandling, HwInterface as PbInterface};
 use crate::rtc_millis::Rtc;
 use heapless::String;
 use rtic::mutex_prelude::*;
@@ -26,7 +26,7 @@ use stm32f1xx_hal::{
     gpio::{gpioa, gpiob, Output, PushPull}, //gpioa , Floating, Input, Alternate},
     pac::{TIM2, USART3},
     prelude::*,
-    serial::{Config, Rx as serialRx, Serial, Tx as serialTx},
+    serial::{Rx as serialRx, Tx as serialTx},
     timer::{CounterUs, Event},
 };
 
@@ -54,7 +54,7 @@ pub(crate) fn timer2_max(cx: timer2_max::Context) {
     });
 }
 
-pub struct PbDpHwInterface<const BUF_SIZE: usize> {
+pub struct PbDpHwInterface {
     tx: serialTx<USART3>,
     rx: serialRx<USART3>,
     // tx_dma: TxDma<serialTx<USART3>, C2>,
@@ -62,11 +62,9 @@ pub struct PbDpHwInterface<const BUF_SIZE: usize> {
     tx_en: gpiob::PB1<Output<PushPull>>,
     rx_en: gpiob::PB0<Output<PushPull>>,
     timer_handler: CounterUs<TIM2>,
-    tx_buffer: [u8; BUF_SIZE],
-    rx_buffer: [u8; BUF_SIZE],
 }
 
-impl<const BUF_SIZE: usize> PbDpHwInterface<BUF_SIZE> {
+impl PbDpHwInterface {
     pub fn new(
         tx: serialTx<USART3>,
         rx: serialRx<USART3>,
@@ -84,13 +82,11 @@ impl<const BUF_SIZE: usize> PbDpHwInterface<BUF_SIZE> {
             tx_en,
             rx_en,
             timer_handler,
-            tx_buffer: [0; BUF_SIZE],
-            rx_buffer: [0; BUF_SIZE],
         }
     }
 }
 
-impl<const BUF_SIZE: usize> PbInterface for PbDpHwInterface<BUF_SIZE> {
+impl PbInterface for PbDpHwInterface {
     fn config_timer(&mut self) {}
 
     fn run_timer(&mut self, _timeout_in_us: u32) {
@@ -192,14 +188,6 @@ impl<const BUF_SIZE: usize> PbInterface for PbDpHwInterface<BUF_SIZE> {
         handle_data_receive::spawn().ok();
     }
 
-    fn get_rx_buffer(&mut self) -> &mut [u8] {
-        &mut self.rx_buffer[..]
-    }
-
-    fn get_tx_buffer(&mut self) -> &mut [u8] {
-        &mut self.tx_buffer[..]
-    }
-
     fn get_baudrate(&self) -> u32 {
         500_000_u32
     }
@@ -218,14 +206,13 @@ impl<const BUF_SIZE: usize> PbInterface for PbDpHwInterface<BUF_SIZE> {
 }
 
 pub struct PbDpDataHandling {
-    // rtc: Rtc,
+    rtc: Rtc,
     debug_pin: gpioa::PA7<Output<PushPull>>,
 }
 
 impl PbDpDataHandling {
     pub fn new(rtc: Rtc, debug_pin: gpioa::PA7<Output<PushPull>>) -> Self {
-        // PbDpDataHandling { rtc, debug_pin }
-        PbDpDataHandling { debug_pin }
+        PbDpDataHandling { rtc, debug_pin }
     }
 }
 
@@ -243,8 +230,7 @@ impl PbDataHandling for PbDpDataHandling {
     }
 
     fn millis(&mut self) -> u32 {
-        // self.rtc.current_time()
-        0
+        self.rtc.current_time()
     }
     fn data_processing(&self, _input: &mut [u8], _output: &[u8]) {
         if (_output.len() > 0) && (_input.len() > 0) {

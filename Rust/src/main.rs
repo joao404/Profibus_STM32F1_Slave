@@ -36,7 +36,7 @@ mod rtc_millis;
 #[rtic::app(device = stm32f1xx_hal::pac, dispatchers = [I2C1_EV], peripherals = true,)]
 mod app {
     use crate::pb_dp_interface::{PbDpDataHandling, PbDpHwInterface};
-    use crate::profibus::{ConfigOld as PbDpConfig, PbDpSlave, ReceiveHandling, CodecConfig};
+    use crate::profibus::{Config as PbDpConfig, PbDpSlave, ReceiveHandling};
     use crate::rtc_millis::Rtc;
     use heapless::{
         spsc::{Consumer, Producer, Queue},
@@ -45,7 +45,7 @@ mod app {
     use nb::block;
     use stm32f1xx_hal::{
         // dma::{dma1::C2, dma1::C3, RxDma, TxDma},
-        gpio::{gpioa, gpiob, gpioc, Output, PushPull}, //gpioa , Floating, Input, Alternate},
+        gpio::{gpioc, Output, PushPull}, //gpioa , Floating, Input, Alternate},
         pac::USART1,
         prelude::*,
         serial::{Config, Rx as serialRx, Serial, Tx as serialTx},
@@ -75,29 +75,19 @@ mod app {
         debug_consumer: Consumer<'static, u8, DEBUG_QUEUE_SIZE>,
         led: gpioc::PC13<Output<PushPull>>,
     }
-
-    // type SerialHwInterface = PbDpHwInterface<PROFIBUS_BUF_SIZE>;
-    // type ProfibusCodec = Codec<'static, SerialHwInterface, dyn FdlTrait>;
-
     #[shared]
     struct Shared {
         debug_producer: Producer<'static, u8, DEBUG_QUEUE_SIZE>,
         profibus_slave: PbDpSlave<
-            PbDpHwInterface<PROFIBUS_BUF_SIZE>,
+            PbDpHwInterface,
             PbDpDataHandling,
+            PROFIBUS_BUF_SIZE,
             INPUT_DATA_SIZE,
             OUTPUT_DATA_SIZE,
             USER_PARA_SIZE,
             EXTERN_DIAG_PARA_SIZE,
             VENDOR_DATA_SIZE,
         >,
-        // profibus_codec : Codec<'static, PbDpHwInterface<PROFIBUS_BUF_SIZE>, PbDpSlave<PbDpDataHandling,
-        // INPUT_DATA_SIZE,
-        // OUTPUT_DATA_SIZE,
-        // USER_PARA_SIZE,
-        // EXTERN_DIAG_PARA_SIZE,
-        // VENDOR_DATA_SIZE,>>,
-        // profibus_fdl: Fdl<'static,  PbDpHwInterface<PROFIBUS_BUF_SIZE>>,
     }
 
     #[init(local = [debug_queue: Queue<u8, DEBUG_QUEUE_SIZE> = Queue::new()])]
@@ -167,11 +157,9 @@ mod app {
         // - USART2: TX = 6, RX = 7
         // - USART3: TX = 2, RX = 3
 
-        let dma1 = cx.device.DMA1.split();
+        let _dma1 = cx.device.DMA1.split();
         let (serial3_tx, serial3_rx) = serial3.split();
         // let serial3_tx_dma = serial3_tx.with_dma(dma1.2);
-        // let rx_buffer: [u8; 2];
-        // serial3_tx_dma.write(&rx_buffer);
         // let &mut serial3_tx = &mut serial3_tx_dma.payload();
         // let serial3_rx_dma = serial3_rx.with_dma(dma1.3);
 
@@ -194,7 +182,7 @@ mod app {
 
         let debug_pin = gpioa.pa7.into_push_pull_output(&mut gpioa.crl);
 
-        let mut serial_interface :PbDpHwInterface<PROFIBUS_BUF_SIZE> = PbDpHwInterface::new(serial3_tx, serial3_rx, tx_en, rx_en, timer);
+        let serial_interface = PbDpHwInterface::new(serial3_tx, serial3_rx, tx_en, rx_en, timer);
 
         let data_interface = PbDpDataHandling::new(rtc, debug_pin);
 
@@ -204,15 +192,6 @@ mod app {
             profibus_config,
             [0x22, 0x20, 0x20, 0x10, 0x10],
         );
-
-        // let serial_config = CodecConfig::default()
-        // .t_s(0x0B)
-        // .receive_handling(ReceiveHandling::Thread);
-
-
-        // let profibus_fdl: Fdl<PbDpHwInterface<PROFIBUS_BUF_SIZE>> = Fdl::new(serial_config, serial_interface);//, data_interface);
-
-        // let profibus_codec = Codec::new(serial_interface, serial_config);
 
         blinky::spawn().unwrap();
 
@@ -255,13 +234,13 @@ mod app {
     #[task(priority = 1, shared = [profibus_slave], local = [led])]
     fn blinky(cx: blinky::Context) {
         cx.local.led.toggle();
-        // let mut profibus_slave = cx.shared.profibus_slave;
-        // profibus_slave.lock(|profibus_slave| {
-        //     let input = profibus_slave.access_input();
-        //     if input.len() > 0 {
-        //         input[0] += 1;
-        //     }
-        // });
+        let mut profibus_slave = cx.shared.profibus_slave;
+        profibus_slave.lock(|profibus_slave| {
+            let input = profibus_slave.access_input();
+            if input.len() > 0 {
+                input[0] += 1;
+            }
+        });
         blinky::spawn_after(1.secs()).unwrap();
     }
 
