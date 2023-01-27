@@ -36,7 +36,7 @@ mod rtc_millis;
 #[rtic::app(device = stm32f1xx_hal::pac, dispatchers = [I2C1_EV], peripherals = true,)]
 mod app {
     use crate::pb_dp_interface::{PbDpDataHandling, PbDpHwInterface};
-    use crate::profibus::{Config as PbDpConfig, PbDpSlave, ReceiveHandling};
+    use crate::profibus::{ProfibusConfig as PbDpConfig, PbDpSlave, ReceiveHandling};
     use crate::rtc_millis::Rtc;
     use heapless::{
         spsc::{Consumer, Producer, Queue},
@@ -169,7 +169,7 @@ mod app {
         let profibus_config = PbDpConfig::default()
             .ident_high(0x00)
             .ident_low(0x2B)
-            .addr(0x0B)
+            .t_s(0x0B)
             .receive_handling(ReceiveHandling::Thread);
 
         let tx_en = gpiob.pb1.into_push_pull_output(&mut gpiob.crl);

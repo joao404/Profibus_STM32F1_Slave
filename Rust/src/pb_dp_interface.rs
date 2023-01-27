@@ -34,7 +34,7 @@ pub(crate) fn handle_data_receive(cx: handle_data_receive::Context) {
     let mut profibus_slave = cx.shared.profibus_slave;
 
     profibus_slave.lock(|profibus_slave| {
-        profibus_slave.handle_data_receive();
+        profibus_slave.handle_codec_data();
     });
 }
 
