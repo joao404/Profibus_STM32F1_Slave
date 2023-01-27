@@ -547,7 +547,7 @@ where
                             // Je nach PDU Datengroesse mehrere Bytes auswerten
                             // LE/LEr - (DA+SA+FC+DSAP+SSAP) = Anzahl Config Bytes
                             //TODO
-                            let config_len: usize = usize::from(self.rx_buffer[1]) - 5;
+                            let config_len: usize = pdu.len() - 2;
                             let mut config_is_valid: bool = true;
                             if self.module_config.len() == config_len {
                                 if self.module_config.len() > 0 {
@@ -596,7 +596,7 @@ where
                     else if function_code == (fc_request::REQUEST + fc_request::SRD_HIGH)
                         || function_code == (fc_request::REQUEST + fc_request::SRD_LOW)
                     {   //TODO
-                        let output_data_len = usize::from(pdu.len() - 3);
+                        let output_data_len = pdu.len();
 
                         if self.sync_configured && self.sync
                         // write data in output_register when sync
