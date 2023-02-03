@@ -325,13 +325,12 @@ where
         sap_offset: bool,
     ) {
         let t_s = self.codec.config.t_s;
-        let mut buf = self.tx_buffer;
-        buf[0] = cmd_type::SD1;
-        buf[1] = destination_addr;
-        buf[2] = t_s + if sap_offset { SAP_OFFSET } else { 0 };
-        buf[3] = function_code;
-        buf[4] = calc_checksum(&buf[1..4]);
-        buf[5] = cmd_type::ED;
+        self.tx_buffer[0] = cmd_type::SD1;
+        self.tx_buffer[1] = destination_addr;
+        self.tx_buffer[2] = t_s + if sap_offset { SAP_OFFSET } else { 0 };
+        self.tx_buffer[3] = function_code;
+        self.tx_buffer[4] = calc_checksum(&self.tx_buffer[1..4]);
+        self.tx_buffer[5] = cmd_type::ED;
         self.codec.tx_len = 6;
         self.transmit();
     }
@@ -345,27 +344,26 @@ where
         pdu2: &[u8],
     ) {
         let t_s = self.codec.config.t_s;
-        let mut buf = self.tx_buffer;
-        buf[0] = cmd_type::SD2;
-        buf[1] = 3 + pdu1.len().to_le_bytes()[0] + pdu2.len().to_le_bytes()[0];
-        buf[2] = 3 + pdu1.len().to_le_bytes()[0] + pdu2.len().to_le_bytes()[0];
-        buf[3] = cmd_type::SD2;
-        buf[4] = destination_addr;
-        buf[5] = t_s + if sap_offset { SAP_OFFSET } else { 0 };
-        buf[6] = function_code;
+        self.tx_buffer[0] = cmd_type::SD2;
+        self.tx_buffer[1] = 3 + pdu1.len().to_le_bytes()[0] + pdu2.len().to_le_bytes()[0];
+        self.tx_buffer[2] = 3 + pdu1.len().to_le_bytes()[0] + pdu2.len().to_le_bytes()[0];
+        self.tx_buffer[3] = cmd_type::SD2;
+        self.tx_buffer[4] = destination_addr;
+        self.tx_buffer[5] = t_s + if sap_offset { SAP_OFFSET } else { 0 };
+        self.tx_buffer[6] = function_code;
         if pdu1.len() > 0 {
             for i in 0..pdu1.len() {
-                buf[7 + i] = pdu1[i];
+                self.tx_buffer[7 + i] = pdu1[i];
             }
         }
         if pdu2.len() > 0 {
             for i in 0..pdu2.len() {
-                buf[7 + i + pdu1.len()] = pdu2[i];
+                self.tx_buffer[7 + i + pdu1.len()] = pdu2[i];
             }
         }
-        let checksum = calc_checksum(&buf[4..7]) + calc_checksum(pdu1) + calc_checksum(pdu2);
-        buf[7 + pdu1.len() + pdu2.len()] = checksum;
-        buf[8 + pdu1.len() + pdu2.len()] = cmd_type::ED;
+        let checksum = calc_checksum(&self.tx_buffer[4..7]) + calc_checksum(pdu1) + calc_checksum(pdu2);
+        self.tx_buffer[7 + pdu1.len() + pdu2.len()] = checksum;
+        self.tx_buffer[8 + pdu1.len() + pdu2.len()] = cmd_type::ED;
         self.codec.tx_len = 9 + pdu1.len() + pdu2.len();
         self.transmit();
     }
@@ -379,16 +377,15 @@ where
         pdu: &[u8; 8],
     ) {
         let t_s = self.codec.config.t_s;
-        let mut buf = self.tx_buffer;
-        buf[0] = cmd_type::SD3;
-        buf[1] = destination_addr;
-        buf[2] = t_s + if sap_offset { SAP_OFFSET } else { 0 };
-        buf[3] = function_code;
+        self.tx_buffer[0] = cmd_type::SD3;
+        self.tx_buffer[1] = destination_addr;
+        self.tx_buffer[2] = t_s + if sap_offset { SAP_OFFSET } else { 0 };
+        self.tx_buffer[3] = function_code;
         for i in 0..pdu.len() {
-            buf[4 + i] = pdu[i];
+            self.tx_buffer[4 + i] = pdu[i];
         }
-        buf[12] = calc_checksum(&buf[1..12]);
-        buf[13] = cmd_type::ED;
+        self.tx_buffer[12] = calc_checksum(&self.tx_buffer[1..12]);
+        self.tx_buffer[13] = cmd_type::ED;
         self.codec.tx_len = 14;
         self.transmit();
     }
@@ -396,17 +393,15 @@ where
     #[allow(dead_code)]
     pub(super) fn transmit_message_sd4(&mut self, destination_addr: u8, sap_offset: bool) {
         let t_s = self.codec.config.t_s;
-        let mut buf = self.tx_buffer;
-        buf[0] = cmd_type::SD4;
-        buf[1] = destination_addr;
-        buf[2] = t_s + if sap_offset { SAP_OFFSET } else { 0 };
+        self.tx_buffer[0] = cmd_type::SD4;
+        self.tx_buffer[1] = destination_addr;
+        self.tx_buffer[2] = t_s + if sap_offset { SAP_OFFSET } else { 0 };
         self.codec.tx_len = 3;
         self.transmit();
     }
 
     pub(super) fn transmit_message_sc(&mut self) {
-        let mut buf = self.tx_buffer;
-        buf[0] = cmd_type::SC;
+        self.tx_buffer[0] = cmd_type::SC;
         self.codec.tx_len = 1;
         self.transmit();
     }
@@ -444,10 +439,6 @@ where
     pub fn handle_codec_data(&mut self) {
         let mut response = false;
 
-        let mut source_addr: u8 = 0;
-        let mut destination_addr: u8 = 0;
-        let mut function_code: u8 = 0;
-
         let rx_len = self.codec.rx_len;
         let t_s = self.codec.config.t_s;
         let buf = self.rx_buffer;
@@ -455,9 +446,9 @@ where
             cmd_type::SD1 => {
                 if 6 == rx_len {
                     if cmd_type::ED == buf[5] {
-                        destination_addr = buf[1];
-                        source_addr = buf[2];
-                        function_code = buf[3];
+                        let destination_addr = buf[1];
+                        let source_addr = buf[2];
+                        let mut function_code = buf[3];
                         let fcs_data = buf[4]; // Frame Check Sequence
 
                         if check_destination_addr(t_s, destination_addr) {
@@ -481,9 +472,9 @@ where
                     if rx_len == usize::from(buf[1] + 6) {
                         if cmd_type::ED == buf[rx_len - 1] {
                             let pdu_len = buf[1]; // DA+SA+FC+Nutzdaten
-                            destination_addr = buf[4];
-                            source_addr = buf[5];
-                            function_code = buf[6];
+                            let destination_addr = buf[4];
+                            let source_addr = buf[5];
+                            let mut function_code = buf[6];
                             let fcs_data = buf[usize::from(pdu_len + 4)]; // Frame Check Sequence
                             if check_destination_addr(t_s, destination_addr) {
                                 if fcs_data == calc_checksum(&buf[4..usize::from(rx_len - 2)]) {
@@ -505,9 +496,9 @@ where
             cmd_type::SD3 => {
                 if 14 == rx_len {
                     if cmd_type::ED == buf[13] {
-                        destination_addr = buf[1];
-                        source_addr = buf[2];
-                        function_code = buf[3];
+                        let destination_addr = buf[1];
+                        let source_addr = buf[2];
+                        let mut function_code = buf[3];
                         let fcs_data = buf[12]; // Frame Check Sequence
 
                         if check_destination_addr(t_s, destination_addr) {
@@ -528,8 +519,8 @@ where
 
             cmd_type::SD4 => {
                 if 3 == rx_len {
-                    destination_addr = buf[1];
-                    source_addr = buf[2];
+                    let destination_addr = buf[1];
+                    let _source_addr = buf[2];
 
                     if check_destination_addr(self.codec.config.t_s, destination_addr) {
                         //TODO
