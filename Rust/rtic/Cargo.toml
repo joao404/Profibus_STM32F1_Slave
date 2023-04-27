@@ -1,6 +1,6 @@
 #cargo-features = ["edition2021"]
 [package]
-name = "stm32f1_rust_can"
+name = "stm32f1 profibus"
 version = "0.1.0"
 authors = ["joao404 <marcel@maage.online>"]
 edition = "2021"

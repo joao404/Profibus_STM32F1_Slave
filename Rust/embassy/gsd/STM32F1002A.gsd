@@ -1,0 +1,70 @@
+#Profibus_DP
+;http://www-mks2.desy.de/content/e3740/e5177/e7190/e7997/e8006/e9280/e10242/index_ger.html
+GSD_Revision = 5
+
+Vendor_Name = "Joao404"
+Model_Name = "Stm32f1 Bluepill"
+Revision = "Ausgabestand 001"
+
+Hardware_Release="A"
+Software_Release="A"
+
+Ident_Number=0x002A
+Protocol_Ident=0
+Station_Type=0
+
+9.6_supp = 0 ; 9600bps Supported
+19.2_supp = 0
+93.75_supp = 0
+187.5_supp = 0
+500_supp = 0
+1.5M_supp = 1
+3M_supp = 0
+6M_supp = 0
+12M_supp = 0
+
+MaxTsdr_9.6 = 60 ; Maximum response time
+MaxTsdr_19.2 = 60 ; at different baud rates.
+MaxTsdr_93.75 = 60
+MaxTsdr_187.5 = 60
+MaxTsdr_500 = 100
+MaxTsdr_1.5M = 150
+MaxTsdr_3M = 250
+MaxTsdr_6M = 450
+MaxTsdr_12M = 800
+
+Redundancy = 0 ; Redundancy Not Supported
+
+Auto_Baud_supp = 0 ; Dont Includes Auto Baud Detection
+
+Set_Slave_Add_supp=0
+
+User_Prm_Data_Len = 0
+Max_User_Prm_Data_Len=6
+Max_Diag_Data_Len = 6
+DPV1_Slave=0
+Fail_Safe=0
+Freeze_Mode_supp=1
+Sync_Mode_supp=1
+Publisher_supp=0
+Subscriber_supp=0
+Isochron_Mode_supp=0
+
+Min_Slave_Interval=1
+
+Module_Reference=0x002A
+
+Slave_Family=3
+
+
+
+Modular_Station=0
+Max_Module=10
+Max_Input_Len=12
+Max_Output_Len=0x30
+
+FIXPRESETMODULES=1
+Module="Servo,A0,DO,DI1,DI2" 0x22,0x20,0x20,0x10,0x10
+1
+PRESET=1
+EndModule
