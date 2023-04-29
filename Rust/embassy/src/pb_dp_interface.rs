@@ -14,11 +14,11 @@
  * LICENSE file for more details.
  */
 
-use crate::profibus::{DataHandlingInterface as PbDataHandling, HwInterface as PbInterface};
+use crate::profibus::{DataHandlingInterface as PbDataHandling, CodecHwInterface as PbInterface};
 
 use embassy_stm32::peripherals::{PB0, PB1, PA7, USART3, DMA1_CH2, DMA1_CH3};
 use embassy_stm32::gpio::Output;
-use embassy_stm32::usart::{Config, Uart, DataBits, Parity};
+use embassy_stm32::usart::Uart;
 use embassy_time::{Duration, Timer};
 //use async_trait::async_trait;
 
@@ -85,7 +85,7 @@ impl<'a> PbInterface for PbDpHwInterface<'a> {
         self.uart.write(&_value).await.unwrap();
     }
 
-    async fn receive_uart_data(&mut self, _value: &mut [u8], len: &mut usize)
+    async fn receive_uart_data<'b>(&mut self, _value: &'b mut [u8], len: &mut usize)
     {
         match self.uart.read_until_idle(_value).await
         {

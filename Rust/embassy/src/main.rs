@@ -10,7 +10,7 @@ use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::interrupt;
 use embassy_stm32::peripherals::PC13;
 use embassy_stm32::time::Hertz;
-use embassy_stm32::usart::{Config, DataBits, Parity, Uart};
+use embassy_stm32::usart;
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 // use embassy_stm32::Peripherals;
@@ -18,19 +18,27 @@ use {defmt_rtt as _, panic_probe as _};
 mod pb_dp_interface;
 mod profibus;
 
+//cargo build --release
+//cargo flash --chip stm32f103C8 --release
+
 use crate::pb_dp_interface::{PbDpDataHandling, PbDpHwInterface};
-use crate::profibus::{ProfibusConfig as PbDpConfig, PbDpSlave};
+use crate::profibus::{Codec, CodecConfig}; //ProfibusConfig as PbDpConfig, /*PbDpSlave*/};
 
 #[embassy_executor::task()]
-async fn profibus_slave() {
+async fn profibus_slave(mut codec: Codec<PbDpHwInterface<'static>>) {
     // unwrap!(Spawner::for_current_executor().await.spawn(profibus_client()));
-    loop{
-        
+    loop {
+        let mut buffer: [u8; 128] = [0; 128];
+        match codec.receive(&mut buffer[..]).await {
+            Some(conn) => {
+                info!("dest:{} source:{}", conn.destination_addr, conn.source_addr)
+            }
+            None => (),
+        }
     }
     // Timer::after(Duration::from_secs(1)).await;
     //unwrap!(Spawner::for_current_executor().await.spawn(my_task(n + 1)));
 }
-
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -43,19 +51,19 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
-    let led = Output::new(p.PC13, Level::High, Speed::Low);
-    let mut test = Test::new(led);
-    let mut test2 = Test2::new();
+    let mut led = Output::new(p.PC13, Level::High, Speed::Low);
+    // let mut test = Test::new(led);
+    // let mut test2 = Test2::new();
 
-    let mut _tx_en = Output::new(p.PB1, Level::High, Speed::VeryHigh);
-    let mut _rx_en = Output::new(p.PB0, Level::High, Speed::VeryHigh);
+    let tx_en = Output::new(p.PB1, Level::High, Speed::VeryHigh);
+    let rx_en = Output::new(p.PB0, Level::High, Speed::VeryHigh);
 
-    let mut uart_config = Config::default();
+    let mut uart_config = usart::Config::default();
     uart_config.baudrate = 500000u32;
-    uart_config.data_bits = DataBits::DataBits9;
-    uart_config.parity = Parity::ParityEven;
+    uart_config.data_bits = usart::DataBits::DataBits9;
+    uart_config.parity = usart::Parity::ParityEven;
     let irq = interrupt::take!(USART3);
-    let mut usart = Uart::new(
+    let uart = usart::Uart::new(
         p.USART3,
         p.PB11,
         p.PB10,
@@ -65,41 +73,44 @@ async fn main(_spawner: Spawner) {
         uart_config,
     );
 
-    usart.write(b"Starting Echo\r\n").await.unwrap();
+    let mut codec = Codec::<PbDpHwInterface>::new(
+        PbDpHwInterface::new(uart, tx_en, rx_en),
+        CodecConfig::default().t_s(0x0B),
+    );
+    //uart.write(b"Starting Echo\r\n").await.unwrap();
 
     // let mut msg: [u8; 8] = [0; 8];
 
-    unwrap!(_spawner.spawn(profibus_slave()));
+    // unwrap!(_spawner.spawn(profibus_slave(codec)));
+
+    led.set_low();
 
     loop {
-        // usart.read_until_idle(&mut msg).await.unwrap();
-        // usart.write(&msg).await.unwrap();
+        let mut buffer: [u8;128] = [0;128];
+        match codec.receive(&mut buffer[..]).await {
+            Some(conn) => {
+                info!("dest:{} source:{}", conn.destination_addr, conn.source_addr);
+                if (conn.destination_addr == 0x0B) && (conn.source_addr == 0x02) && (conn.function_code == 76)
+                {
+                    led.toggle();
+                }
+            }
+            None => (),
+        }
 
-        // match embassy_futures::select::select(test.blink(),usart.read_until_idle(&mut msg)).await {
-        //     _ => {},
-        // };
+        // let blink1 = test.blink();
+        // let blink2 = test2.blink();
 
-        let blink1 = test.blink();
-        let blink2 = test2.blink();
-
-        // if let select::Either::First(first) = select::select(blink1, blink2).await
-        // {
-        //     if Test::blink == first
-        //     {
-
+        // match select::select(blink1, blink2).await {
+        //     select::Either::First(_) => {
+        //         info!("blink1");
+        //     }
+        //     select::Either::Second(_) => {
+        //         info!("blink2");
         //     }
         // }
 
-        match select::select(blink1, blink2).await {
-            select::Either::First(_) => {
-                info!("blink1");
-            }
-            select::Either::Second(_) => {
-                info!("blink2");
-            }
-        }
-
-        test.preblink();
+        // test.preblink();
 
         // info!("high");
         // led.set_high();
@@ -124,8 +135,7 @@ impl<'a> Test<'a> {
         Test { led }
     }
 
-    pub fn preblink(&mut self)
-    {
+    pub fn preblink(&mut self) {
         // self.blink();
         //unwrap!(_spawner.spawn(self.blink()));
     }

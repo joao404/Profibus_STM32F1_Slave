@@ -18,7 +18,7 @@
 //use async_trait::async_trait;
 
 //#[async_trait]
-pub trait HwInterface {
+pub trait CodecHwInterface {
     fn config_timer(&mut self) {}
 
     async fn wait_for(&mut self, _time_in_us: u32) {}

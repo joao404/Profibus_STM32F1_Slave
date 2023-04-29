@@ -1,5 +1,5 @@
 use super::codec::{CodecConfig, Codec};
-use super::codec_hw_interface::HwInterface;
+use super::codec_hw_interface::CodecHwInterface;
 use super::data_handling_interface::DataHandlingInterface;
 
 use super::types::{
@@ -78,9 +78,10 @@ impl Default for ProfibusConfig {
     }
 }
 
+
 #[allow(dead_code)]
 pub struct PbDpSlave<
-    Serial,
+    SerialInterface,
     DataHandling,
     const BUF_SIZE: usize,
     const INPUT_DATA_SIZE: usize,
@@ -89,11 +90,10 @@ pub struct PbDpSlave<
     const EXTERN_DIAG_PARA_SIZE: usize,
     const MODULE_CONFIG_SIZE: usize,
 > {
-    pub(super) hw_interface: Serial,
-    pub(super) data_handling_interface: DataHandling,
-    pub(super) tx_buffer: [u8; BUF_SIZE],
+    pub data_handling_interface: DataHandling,
+    pub tx_buffer: [u8; BUF_SIZE],
 
-    pub(super) codec: Codec,
+    pub codec: Codec<SerialInterface>,
 
     fdl : FdlConfig,
 
@@ -128,7 +128,7 @@ pub struct PbDpSlave<
 }
 
 impl<
-        Serial,
+        SerialInterface,
         DataHandling,
         const BUF_SIZE: usize,
         const INPUT_DATA_SIZE: usize,
@@ -138,7 +138,7 @@ impl<
         const MODULE_CONFIG_SIZE: usize,
     >
     PbDpSlave<
-        Serial,
+        SerialInterface,
         DataHandling,
         BUF_SIZE,
         INPUT_DATA_SIZE,
@@ -148,11 +148,11 @@ impl<
         MODULE_CONFIG_SIZE,
     >
 where
-    Serial: HwInterface,
+    SerialInterface: CodecHwInterface,
     DataHandling: DataHandlingInterface,
 {
     pub fn new(
-        mut hw_interface: Serial,
+        mut hw_interface: SerialInterface,
         mut data_handling_interface: DataHandling,
         config: ProfibusConfig,
         module_config: [u8; MODULE_CONFIG_SIZE],
@@ -170,27 +170,14 @@ where
         let user_para = [0; USER_PARA_SIZE];
         let extern_diag_para = [0; EXTERN_DIAG_PARA_SIZE];
 
-        let mut codec = Codec::default();
-        PbDpSlave::<
-            Serial,
-            DataHandling,
-            BUF_SIZE,
-            INPUT_DATA_SIZE,
-            OUTPUT_DATA_SIZE,
-            USER_PARA_SIZE,
-            EXTERN_DIAG_PARA_SIZE,
-            MODULE_CONFIG_SIZE,
-        >::codec_init(
-            &mut codec,
-            &mut hw_interface,
-            &mut data_handling_interface,
+        let mut codec = Codec::<SerialInterface>::new(
+            hw_interface,
             config.codec,
         );
 
         let current_time = data_handling_interface.millis();
 
         Self {
-            hw_interface,
             data_handling_interface,
             tx_buffer: [0; BUF_SIZE],
             codec,
@@ -228,7 +215,7 @@ where
         &mut self.input_data
     }
 
-    pub(super) async fn fdl_handle_data(
+    pub async fn fdl_handle_data(
         &mut self,
         source_addr: u8,
         destination_addr: u8,

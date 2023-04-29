@@ -1,4 +1,5 @@
 #[derive(PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum DpSlaveState {
     Por = 1,   // Power on reset
     Wrpm = 2,  // Wait for parameter
@@ -7,6 +8,7 @@ pub enum DpSlaveState {
 }
 
 #[derive(PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum StreamState {
     WaitSyn,
     WaitData,
@@ -16,6 +18,7 @@ pub enum StreamState {
     SendData,
 }
 
+#[allow(dead_code)]
 pub mod cmd_type {
     pub const SD1: u8 = 0x10; // Telegramm ohne Datenfeld
     pub const SD2: u8 = 0x68; // Daten Telegramm variabel
