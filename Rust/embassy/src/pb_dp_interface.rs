@@ -26,6 +26,7 @@ pub struct PbDpHwInterface<'a> {
     uart : Uart<'a, USART3, DMA1_CH2, DMA1_CH3>,
     tx_en: Output<'a, PB1>,
     rx_en: Output<'a, PB0>,
+    // buffer : [u8;255],
 }
 
 impl<'a> PbDpHwInterface<'a> {
@@ -38,6 +39,7 @@ impl<'a> PbDpHwInterface<'a> {
             uart,
             tx_en,
             rx_en,
+            // buffer : [0;255],
         }
     }
 }
@@ -85,7 +87,7 @@ impl<'a> PbInterface for PbDpHwInterface<'a> {
         self.uart.write(&_value).await.unwrap();
     }
 
-    async fn receive_uart_data<'b>(&mut self, _value: &'b mut [u8], len: &mut usize)
+    async fn receive_uart_data<'out>(&'_ mut self, _value: &'out mut [u8], len: &mut usize)
     {
         match self.uart.read_until_idle(_value).await
         {
@@ -93,6 +95,15 @@ impl<'a> PbInterface for PbDpHwInterface<'a> {
             _=> *len = 0,
         }
     }
+
+    // async fn receive_uart_data<'s : 'out, 'out>(&'s mut self) -> Option<&'out [u8]>
+    // {
+    //     match self.uart.read_until_idle(&mut self.buffer[..]).await
+    //     {
+    //         Ok(size) => Some(&self.buffer[0..size]),
+    //         _=> None,
+    //     }
+    // }
 
     fn get_baudrate(&self) -> u32 {
         500_000_u32

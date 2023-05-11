@@ -39,7 +39,8 @@ pub trait CodecHwInterface {
 
     async fn send_uart_data(&mut self, _value: &[u8]) {}
 
-    async fn receive_uart_data(&mut self, _value: &mut [u8], _len: &mut usize) {}
+    async fn receive_uart_data<'out>(&'_ mut self, _value: &'out mut [u8], _len: &mut usize) {}
+    // async fn receive_uart_data<'s : 'out, 'out>(&'s mut self) -> Option<&'out [u8]> {None}
 
     fn get_baudrate(&self) -> u32 {
         0

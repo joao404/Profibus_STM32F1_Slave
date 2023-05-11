@@ -11,7 +11,7 @@ use embassy_stm32::interrupt;
 use embassy_stm32::peripherals::PC13;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usart;
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, TimeoutError, Timer};
 use {defmt_rtt as _, panic_probe as _};
 // use embassy_stm32::Peripherals;
 
@@ -21,24 +21,24 @@ mod profibus;
 //cargo build --release
 //cargo flash --chip stm32f103C8 --release
 
-use crate::pb_dp_interface::{PbDpDataHandling, PbDpHwInterface};
-use crate::profibus::{Codec, CodecConfig}; //ProfibusConfig as PbDpConfig, /*PbDpSlave*/};
+use crate::pb_dp_interface::{PbDpHwInterface};
+use crate::profibus::{Codec, CodecConfig, Device, DeviceConfig}; //ProfibusConfig as PbDpConfig, /*PbDpSlave*/};
 
-#[embassy_executor::task()]
-async fn profibus_slave(mut codec: Codec<PbDpHwInterface<'static>>) {
-    // unwrap!(Spawner::for_current_executor().await.spawn(profibus_client()));
-    loop {
-        let mut buffer: [u8; 128] = [0; 128];
-        match codec.receive(&mut buffer[..]).await {
-            Some(conn) => {
-                info!("dest:{} source:{}", conn.destination_addr, conn.source_addr)
-            }
-            None => (),
-        }
-    }
-    // Timer::after(Duration::from_secs(1)).await;
-    //unwrap!(Spawner::for_current_executor().await.spawn(my_task(n + 1)));
-}
+// #[embassy_executor::task()]
+// async fn profibus_slave(mut codec: Codec<PbDpHwInterface<'static>>) {
+//     // unwrap!(Spawner::for_current_executor().await.spawn(profibus_client()));
+//     loop {
+//         let mut buffer: [u8; 128] = [0; 128];
+//         match codec.receive(&mut buffer[..]).await {
+//             Some(conn) => {
+//                 info!("dest:{} source:{}", conn.destination_addr, conn.source_addr)
+//             }
+//             None => (),
+//         }
+//     }
+//     // Timer::after(Duration::from_secs(1)).await;
+//     //unwrap!(Spawner::for_current_executor().await.spawn(my_task(n + 1)));
+// }
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -73,30 +73,102 @@ async fn main(_spawner: Spawner) {
         uart_config,
     );
 
-    let mut codec = Codec::<PbDpHwInterface>::new(
+    let mut device_config = DeviceConfig::default();
+    device_config.fdl_config.codec_config.t_s = 0x0B;
+
+    // .ident_high(0x00)
+    // .ident_low(0x2B)
+
+    const PROFIBUS_BUF_SIZE: usize = 50;
+    const INPUT_DATA_SIZE: usize = 2;
+    const OUTPUT_DATA_SIZE: usize = 5;
+    const USER_PARA_SIZE: usize = 0;
+    const EXTERN_DIAG_PARA_SIZE: usize = 0;
+    const VENDOR_DATA_SIZE: usize = 5;
+
+    let mut device = Device::<PbDpHwInterface, 
+    PROFIBUS_BUF_SIZE,
+    INPUT_DATA_SIZE,
+    OUTPUT_DATA_SIZE,
+    USER_PARA_SIZE,
+    EXTERN_DIAG_PARA_SIZE,
+    VENDOR_DATA_SIZE, >::new(
         PbDpHwInterface::new(uart, tx_en, rx_en),
-        CodecConfig::default().t_s(0x0B),
+        device_config,
+        [0x22, 0x20, 0x20, 0x10, 0x10],
     );
     //uart.write(b"Starting Echo\r\n").await.unwrap();
-
-    // let mut msg: [u8; 8] = [0; 8];
 
     // unwrap!(_spawner.spawn(profibus_slave(codec)));
 
     led.set_low();
 
+    // let mut codec = Codec::<PbDpHwInterface>::new(
+    //     PbDpHwInterface::new(uart, tx_en, rx_en),
+    //     CodecConfig::default().t_s(0x0B),
+    // );
+
     loop {
-        let mut buffer: [u8;128] = [0;128];
-        match codec.receive(&mut buffer[..]).await {
-            Some(conn) => {
-                info!("dest:{} source:{}", conn.destination_addr, conn.source_addr);
-                if (conn.destination_addr == 0x0B) && (conn.source_addr == 0x02) && (conn.function_code == 76)
-                {
-                    led.toggle();
-                }
-            }
-            None => (),
+        if device.run().await
+        {
+            
         }
+
+        // let mut buffer: [u8; 128] = [0; 128];
+        // match embassy_time::with_timeout(Duration::from_millis(500), codec.receive(&mut buffer[..]))
+        //     .await
+        // {
+        //     Ok(connection) => {
+        //         match connection {
+        //             Some(conn) => {
+        //                 info!("dest:{} source:{}", conn.destination_addr, conn.source_addr);
+        //                 if (conn.destination_addr == 0x0B)
+        //                     && (conn.source_addr == 0x02)
+        //                     && (conn.function_code == 76)
+        //                 {
+        //                     led.toggle();
+        //                     // let tx_buffer: [u8;128] = [0;128];
+        //                     // codec.transmit(&tx_buffer).await;
+        //                 }
+        //             }
+        //             None => (),
+        //         }
+        //     }
+        //     Err(_) => {
+        //         // Go to save state
+                
+        //         // Wait for first message
+        //         match codec.receive(&mut buffer[..]).await {
+        //             Some(conn) => {
+        //                 info!("dest:{} source:{}", conn.destination_addr, conn.source_addr);
+        //                 if (conn.destination_addr == 0x0B)
+        //                     && (conn.source_addr == 0x02)
+        //                     && (conn.function_code == 76)
+        //                 {
+        //                     led.toggle();
+        //                     // let tx_buffer: [u8;128] = [0;128];
+        //                     // codec.transmit(&tx_buffer).await;
+        //                 }
+        //             }
+        //             None => (),
+        //         }
+        //     }
+        // }
+
+
+        // match codec.receive(&mut buffer[..]).await {
+        // // match codec.receive().await {
+        //     Some(conn) => {
+        //         info!("dest:{} source:{}", conn.destination_addr, conn.source_addr);
+        //         if (conn.destination_addr == 0x0B) && (conn.source_addr == 0x02) && (conn.function_code == 76)
+        //         {
+        //             led.toggle();
+        //             // let tx_buffer: [u8;128] = [0;128];
+        //             // codec.transmit(&tx_buffer).await;
+        //         }
+        //     }
+        //     None => (),
+        // }
 
         // let blink1 = test.blink();
         // let blink2 = test2.blink();

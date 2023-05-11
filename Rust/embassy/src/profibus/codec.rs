@@ -15,7 +15,7 @@
  */
 
 use super::codec_hw_interface::CodecHwInterface;
-use super::types::{cmd_type, StreamState};
+use super::types::{cmd_type, StreamState, FcRequestHighNibble};
 use defmt::*;
 
 pub struct CodecConfig {
@@ -54,39 +54,83 @@ impl Default for CodecConfig {
     }
 }
 
-pub struct Connection<'a> {
+pub struct ConnectionParam {
     pub source_addr: u8,
     pub destination_addr: u8,
     pub function_code: u8,
-    pub pdu: &'a [u8],
+    pub pdu_start: usize,
+    pub pdu_end: usize,
+    // pub pdu: &'pdu [u8],
 }
 
-impl<'a> Connection<'a> {
-    pub fn new(source_addr: u8, destination_addr: u8, function_code: u8, pdu: &'a [u8]) -> Self {
+impl ConnectionParam {
+    pub fn new(
+        source_addr: u8,
+        destination_addr: u8,
+        function_code: u8,
+        pdu_start: usize,
+        pdu_end: usize,
+    ) -> Self {
         Self {
             source_addr,
             destination_addr,
             function_code,
+            pdu_start,
+            pdu_end,
+        }
+    }
+}
+
+pub struct Connection<'pdu> {
+    pub source_addr: u8,
+    pub destination_addr: u8,
+    pub function_code: u8,
+    pub sap: Option<(u8, u8)>, //(dsap, ssap)
+    pub pdu: &'pdu [u8],
+}
+
+impl<'pdu> Connection<'pdu> {
+    pub fn new(
+        source_addr: u8,
+        destination_addr: u8,
+        function_code: u8,
+        sap: Option<(u8, u8)>, //(dsap, ssap)
+        pdu: &'pdu [u8],
+    ) -> Self {
+        Self {
+            source_addr,
+            destination_addr,
+            function_code,
+            sap,
             pdu,
         }
     }
 }
+
+const TX_SIZE: usize = 255;
 
 #[allow(dead_code)]
 pub struct Codec<SerialInterface> {
     config: CodecConfig,
     hw_interface: SerialInterface,
 
-    stream_state: StreamState,
+    tx_buffer: [u8; TX_SIZE],
+    tx_len: usize,
+
     timeout_max_syn_time_in_us: u32,
     timeout_max_rx_time_in_us: u32,
     timeout_max_tx_time_in_us: u32,
     timeout_max_sdr_time_in_us: u32,
     timer_timeout_in_us: u32,
+
+    stream_state: StreamState,
+
+    source_addr: u8,
+    fcv_activated: bool,
+    fcb_last: bool,
 }
 
-const SAP_OFFSET: u8 = 128;
-const BROADCAST_ADD: u8 = 127;
+const BROADCAST_ADD: u8 = 0x7F;
 const DEFAULT_ADD: u8 = 126;
 
 impl<SerialInterface> Codec<SerialInterface>
@@ -122,12 +166,19 @@ where
         Self {
             config,
             hw_interface,
-            stream_state,
+            tx_buffer: [0; TX_SIZE],
+            tx_len: 0,
             timeout_max_syn_time_in_us,
             timeout_max_rx_time_in_us,
             timeout_max_tx_time_in_us,
             timeout_max_sdr_time_in_us,
             timer_timeout_in_us,
+
+            stream_state,
+
+            source_addr: 0xFF,
+            fcv_activated: false,
+            fcb_last: false,
         }
     }
 
@@ -139,43 +190,112 @@ where
         self.hw_interface.rx_rs485_enable();
     }
 
-    pub async fn receive<'a>(&mut self, buffer: &'a mut [u8]) -> Option<Connection<'a>> {
+    pub async fn receive<'buf: 'out, 'out>(
+        &'_ mut self,
+        buffer: &'buf mut [u8],
+    ) -> Option<Connection<'out>> {
         self.hw_interface.rx_rs485_disable();
+        // wait for syn time
+        self.stream_state = StreamState::WaitSyn;
         self.hw_interface
             .wait_for(self.timeout_max_syn_time_in_us)
             .await;
         self.hw_interface.rx_rs485_enable();
 
-        loop {
+        let result = loop {
             match self.receive_and_check(buffer).await {
-                Some(conn) => {
-                    self.hw_interface.rx_rs485_disable();
-                    return Some(conn);
+                Some(connparam) => {
+                    break connparam;
                 }
-                None => {
-                    self.reset_data_stream().await;
-                }
+                _ => (),
+            };
+            // reset data stream in case that
+            self.reset_data_stream().await;
+        };
+        self.hw_interface.rx_rs485_disable();
+        self.stream_state = StreamState::HandleData;
+        let mut sap = None;
+        if result.pdu_start != 0xFF {
+            if sap_active(result.source_addr) && sap_active(result.destination_addr) {
+                sap = Some((result.destination_addr & 0x7F, result.source_addr & 0x7F))
             }
         }
+        Some(Connection::new(
+            result.source_addr,
+            result.destination_addr,
+            result.function_code,
+            sap,
+            &buffer[result.pdu_start..result.pdu_end],
+        ))
     }
 
-    async fn receive_and_check<'a>(&mut self, buffer: &'a mut [u8]) -> Option<Connection<'a>> {
+    async fn receive_and_check<'buf: 'out, 'out>(
+        &'_ mut self,
+        buffer: &'out mut [u8],
+    ) -> Option<ConnectionParam> {
         let mut rx_len = 0;
+        self.stream_state = StreamState::WaitData;
         self.hw_interface
             .receive_uart_data(buffer, &mut rx_len)
             .await;
-        match self.check_data(&buffer[0..rx_len]) {
-            Some(conn) => return Some(conn),
-            None => {
-                self.reset_data_stream().await;
-                None
+        let result = match Self::check_telegram_format(self.config.t_s, &buffer[0..rx_len]) {
+            Some(conn) => {
+                if (conn.function_code & 0x30) == FcRequestHighNibble::FCB
+                // fcb start
+                {
+                    self.fcv_activated = true;
+                    self.fcb_last = true;
+                } else if self.fcv_activated {
+                    if conn.source_addr != self.source_addr {
+                        // new address so fcv is deactivated
+                        self.fcv_activated = false;
+                    } else if ((conn.function_code & FcRequestHighNibble::FCB) != 0) == self.fcb_last {
+                        // FCB is identical, repeat message
+                        self.transmit().await;
+                        return None;
+                    } else {
+                        // save new FCB bit
+                        self.fcb_last = !self.fcb_last;
+                    }
+                } else
+                // deactivate fcv
+                {
+                    self.fcv_activated = false;
+                }
+
+                // save last address
+                self.source_addr = conn.source_addr;
+
+                Some(conn)
             }
-        }
+            None => None,
+        };
+        result
+
+        // let result = match self.hw_interface.receive_uart_data().await {
+        //             Some(buffer) => match Self::check_data(self.config.t_s, buffer) {
+        //                 Some(conn) => Some(conn),
+        //                 None => None,
+        //             },
+        //             None => None,
+        //         };
+        //         Self::reset_data_stream(self).await;
+        //         result
     }
 
-    pub fn check_data<'a>(&mut self, buffer: &'a [u8]) -> Option<Connection<'a>> {
+    // todo!(give SAP to next higher layer)
+    // todo!(function code analysis => SDN/SDR inclusive FCB/FCV)
+    // todo!(an den FDL layer werden dann die einzelnen PDUs mit SAP übergeben bzw. die zyklischen Daten)
+    // todo!(Problem: ich muss das letzte gesendete Telegram hier speichern, was bedeutet, dass ich eine Speicher brauche
+    // und damit wieder das Referenzproblem auftritt)
+    // todo!(Die FDL hat einzelne SAP Objekte und das Objekt, welches einfach nur für den zyklischen Datenaustausch da ist)
+    // todo!(Beachte die tabelle bezüglch des Löschens des FCB)
+
+    fn check_telegram_format<'buf: 'out, 'out>(
+        t_s: u8,
+        buffer: &'buf [u8],
+    ) -> Option<ConnectionParam> {
         let rx_len = buffer.len();
-        let t_s = self.config.t_s;
         let buf = buffer;
         match buf[0] {
             cmd_type::SD1 => {
@@ -183,16 +303,17 @@ where
                     if cmd_type::ED == buf[5] {
                         let destination_addr = buf[1];
                         let source_addr = buf[2];
-                        let mut function_code = buf[3];
+                        let function_code = buf[3];
                         let fcs_data = buf[4]; // Frame Check Sequence
 
                         if check_destination_addr(t_s, destination_addr) {
                             if fcs_data == calc_checksum(&buf[1..4]) {
-                                return Some(Connection::new(
+                                return Some(ConnectionParam::new(
                                     source_addr,
                                     destination_addr,
                                     function_code,
-                                    &[0; 0],
+                                    0xFF,
+                                    0,
                                 ));
                             }
                         }
@@ -207,15 +328,16 @@ where
                             let pdu_len = buf[1]; // DA+SA+FC+PDU
                             let destination_addr = buf[4];
                             let source_addr = buf[5];
-                            let mut function_code = buf[6];
+                            let function_code = buf[6];
                             let fcs_data = buf[usize::from(pdu_len + 4)]; // Frame Check Sequence
                             if check_destination_addr(t_s, destination_addr) {
                                 if fcs_data == calc_checksum(&buf[4..usize::from(rx_len - 2)]) {
-                                    return Some(Connection::new(
+                                    return Some(ConnectionParam::new(
                                         source_addr,
                                         destination_addr,
                                         function_code,
-                                        &buf[7..usize::from(rx_len - 2)],
+                                        7,
+                                        usize::from(rx_len - 2),
                                     ));
                                 }
                             }
@@ -229,16 +351,17 @@ where
                     if cmd_type::ED == buf[13] {
                         let destination_addr = buf[1];
                         let source_addr = buf[2];
-                        let mut function_code = buf[3];
+                        let function_code = buf[3];
                         let fcs_data = buf[12]; // Frame Check Sequence
 
                         if check_destination_addr(t_s, destination_addr) {
                             if fcs_data == calc_checksum(&buf[1..12]) {
-                                return Some(Connection::new(
+                                return Some(ConnectionParam::new(
                                     source_addr,
                                     destination_addr,
                                     function_code,
-                                    &buf[4..12],
+                                    4,
+                                    12,
                                 ));
                             }
                         }
@@ -251,15 +374,21 @@ where
                     let destination_addr = buf[1];
                     let source_addr = buf[2];
 
-                    if check_destination_addr(self.config.t_s, destination_addr) {
+                    if check_destination_addr(t_s, destination_addr) {
                         //TODO
-                        return Some(Connection::new(source_addr, destination_addr, 0, &[0; 0]));
+                        return Some(ConnectionParam::new(
+                            source_addr,
+                            destination_addr,
+                            0,
+                            0xFF,
+                            0,
+                        ));
                     }
                 }
             }
             cmd_type::SC => {
                 if 1 == rx_len {
-                    return Some(Connection::new(0, 0, 0, &[0; 0]));
+                    return Some(ConnectionParam::new(0, 0, 0, 0xFF, 0));
                 }
             }
             _ => (),
@@ -271,81 +400,60 @@ where
     }
 
     #[allow(dead_code)]
-    pub async fn transmit_message_sd1<'a>(
-        &mut self,
-        buffer: &'a mut [u8],
-        connection: Connection<'a>,
-        sap_offset: bool,
-    ) {
+    pub async fn transmit_message_sd1<'a>(&mut self, connection: Connection<'a>) {
         let t_s = self.config.t_s;
-        let tx_len = message_sd1(
-            buffer,
+        self.tx_len = message_sd1(
+            &mut self.tx_buffer[..],
             connection.destination_addr,
-            connection.function_code,
-            sap_offset,
             t_s,
+            connection.function_code,
         );
-        self.transmit(&buffer[0..tx_len]).await;
+        self.transmit().await;
     }
 
     #[allow(dead_code)]
-    pub async fn transmit_message_sd2<'a>(
-        &mut self,
-        buffer: &mut [u8],
-        connection: Connection<'a>,
-        sap_offset: bool,
-    ) {
+    pub async fn transmit_message_sd2<'a>(&mut self, connection: Connection<'a>) {
         let t_s = self.config.t_s;
-        let tx_len = message_sd2(
-            buffer,
+        self.tx_len = message_sd2(
+            &mut self.tx_buffer[..],
             connection.destination_addr,
-            connection.function_code,
-            sap_offset,
             t_s,
+            connection.function_code,
+            connection.sap,
             connection.pdu,
         );
-        self.transmit(&buffer[0..tx_len]).await;
+        self.transmit().await;
     }
 
     #[allow(dead_code)]
-    pub async fn transmit_message_sd3<'a>(
-        &mut self,
-        buffer: &mut [u8],
-        connection: Connection<'a>,
-        sap_offset: bool,
-    ) {
+    pub async fn transmit_message_sd3<'a>(&mut self, connection: Connection<'a>) {
         let t_s = self.config.t_s;
-        let tx_len = message_sd3(
-            buffer,
+        self.tx_len = message_sd3(
+            &mut self.tx_buffer[..],
             connection.destination_addr,
-            connection.function_code,
-            sap_offset,
             t_s,
+            connection.function_code,
+            connection.sap,
             connection.pdu,
         );
-        self.transmit(&buffer[0..tx_len]).await;
+        self.transmit().await;
     }
 
     #[allow(dead_code)]
-    pub async fn transmit_message_sd4<'a>(
-        &mut self,
-        buffer: &mut [u8],
-        connection: Connection<'a>,
-        sap_offset: bool,
-    ) {
+    pub async fn transmit_message_sd4<'a>(&mut self, connection: Connection<'a>) {
         let t_s = self.config.t_s;
 
-        let tx_len = message_sd4(buffer, connection.destination_addr, sap_offset, t_s);
-        self.transmit(&buffer[0..tx_len]).await;
+        self.tx_len = message_sd4(&mut self.tx_buffer[..], connection.destination_addr, t_s);
+        self.transmit().await;
     }
 
     #[allow(dead_code)]
-    pub async fn transmit_message_sc(&mut self, buffer: &mut [u8]) {
-        let tx_len = message_sc(buffer);
-        self.transmit(&buffer[0..tx_len]).await;
+    pub async fn transmit_message_sc(&mut self) {
+        self.tx_len = message_sc(&mut self.tx_buffer[..]);
+        self.transmit().await;
     }
 
-    pub async fn transmit(&mut self, buffer: &[u8]) {
+    pub async fn transmit(&mut self) {
         if 0 != self.config.t_sdr_min {
             self.stream_state = StreamState::WaitMinTsdr;
             let baudrate = self.hw_interface.get_baudrate();
@@ -356,7 +464,8 @@ where
         self.stream_state = StreamState::SendData;
         self.hw_interface.wait_for_activ_transmission().await;
         self.hw_interface.tx_rs485_enable();
-        self.hw_interface.send_uart_data(&buffer).await;
+        let buffer = &self.tx_buffer[0..self.tx_len];
+        self.hw_interface.send_uart_data(buffer).await;
     }
 }
 
@@ -379,16 +488,20 @@ fn check_destination_addr(address: u8, destination: u8) -> bool {
     }
 }
 
+const SAP_OFFSET: u8 = 0x80;
+fn sap_active(address: u8) -> bool {
+    (address & SAP_OFFSET) == SAP_OFFSET
+}
+
 pub fn message_sd1(
     buffer: &mut [u8],
     destination_addr: u8,
+    source_addr: u8,
     function_code: u8,
-    sap_offset: bool,
-    t_s: u8,
 ) -> usize {
     buffer[0] = cmd_type::SD1;
     buffer[1] = destination_addr;
-    buffer[2] = t_s + if sap_offset { SAP_OFFSET } else { 0 };
+    buffer[2] = source_addr;
     buffer[3] = function_code;
     buffer[4] = calc_checksum(&buffer[1..4]);
     buffer[5] = cmd_type::ED;
@@ -398,9 +511,9 @@ pub fn message_sd1(
 pub fn message_sd2(
     buffer: &mut [u8],
     destination_addr: u8,
+    source_addr: u8,
     function_code: u8,
-    sap_offset: bool,
-    t_s: u8,
+    sap: Option<(u8, u8)>,
     pdu: &[u8],
 ) -> usize {
     buffer[0] = cmd_type::SD2;
@@ -408,34 +521,60 @@ pub fn message_sd2(
     buffer[2] = 3 + pdu.len().to_le_bytes()[0];
     buffer[3] = cmd_type::SD2;
     buffer[4] = destination_addr;
-    buffer[5] = t_s + if sap_offset { SAP_OFFSET } else { 0 };
+    buffer[5] = source_addr;
     buffer[6] = function_code;
-    if pdu.len() > 0 {
-        for i in 0..pdu.len() {
-            buffer[7 + i] = pdu[i];
+    if let Some(sap) = sap {
+        buffer[4] += 0x80;
+        buffer[5] += 0x80;
+        buffer[7] = sap.0;
+        buffer[8] = sap.1;
+        if pdu.len() > 0 {
+            for i in 0..pdu.len() {
+                buffer[9 + i] = pdu[i];
+            }
         }
+        let checksum = calc_checksum(&buffer[4..9 + pdu.len()]);
+        buffer[9 + pdu.len()] = checksum;
+        buffer[10 + pdu.len()] = cmd_type::ED;
+        return 11 + pdu.len();
+    } else {
+        if pdu.len() > 0 {
+            for i in 0..pdu.len() {
+                buffer[7 + i] = pdu[i];
+            }
+        }
+        let checksum = calc_checksum(&buffer[4..7 + pdu.len()]);
+        buffer[7 + pdu.len()] = checksum;
+        buffer[8 + pdu.len()] = cmd_type::ED;
+        return 9 + pdu.len();
     }
-    let checksum = calc_checksum(&buffer[4..7]) + calc_checksum(pdu);
-    buffer[7 + pdu.len()] = checksum;
-    buffer[8 + pdu.len()] = cmd_type::ED;
-    9 + pdu.len()
 }
 
 #[allow(dead_code)]
 pub fn message_sd3(
     buffer: &mut [u8],
     destination_addr: u8,
+    source_addr: u8,
     function_code: u8,
-    sap_offset: bool,
-    t_s: u8,
+    sap: Option<(u8, u8)>,
     pdu: &[u8],
 ) -> usize {
     buffer[0] = cmd_type::SD3;
     buffer[1] = destination_addr;
-    buffer[2] = t_s + if sap_offset { SAP_OFFSET } else { 0 };
+    buffer[2] = source_addr;
     buffer[3] = function_code;
-    for i in 0..pdu.len() {
-        buffer[4 + i] = pdu[i];
+    if let Some(sap) = sap {
+        buffer[2] += 0x80;
+        buffer[3] += 0x80;
+        buffer[4] = sap.0;
+        buffer[5] = sap.1;
+        for i in 0..pdu.len() {
+            buffer[6 + i] = pdu[i];
+        }
+    } else {
+        for i in 0..pdu.len() {
+            buffer[4 + i] = pdu[i];
+        }
     }
     buffer[12] = calc_checksum(&buffer[1..12]);
     buffer[13] = cmd_type::ED;
@@ -443,10 +582,10 @@ pub fn message_sd3(
 }
 
 #[allow(dead_code)]
-pub fn message_sd4(buffer: &mut [u8], destination_addr: u8, sap_offset: bool, t_s: u8) -> usize {
+pub fn message_sd4(buffer: &mut [u8], destination_addr: u8, source_addr: u8) -> usize {
     buffer[0] = cmd_type::SD4;
     buffer[1] = destination_addr;
-    buffer[2] = t_s + if sap_offset { SAP_OFFSET } else { 0 };
+    buffer[2] = source_addr;
     3
 }
 
